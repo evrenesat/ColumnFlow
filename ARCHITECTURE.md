@@ -2,19 +2,47 @@
 
 ## Overview
 
-Firefox WebExtension (MV3) that pairs two tabs showing the same canonical URL and synchronizes scroll position so both tabs behave as a two-column reading continuum when placed side by side in Firefox Split View.
+Firefox and Chrome Desktop 140+ WebExtension (MV3) that pairs two tabs showing the same canonical URL and synchronizes scroll position so both tabs behave as a two-column reading continuum when placed side by side in browser split view.
+
+## Build And Manifest Flow
+
+The source tree under `src/` is shared by both browsers. Build scripts recreate `dist/firefox/` and `dist/chrome/` from scratch, copy the runtime assets and icons into each output, and write browser-specific manifests at each output root.
+
+Manifest generation is split into shared data plus browser-specific overrides:
+
+- shared fields define the runtime, icons, host permissions, and common behavior
+- Firefox output keeps Firefox-specific metadata such as `browser_specific_settings`
+- Chrome output keeps Chrome-specific metadata such as `minimum_chrome_version: 140` and the MV3 service worker background shape
+
+The generated `dist/firefox/` and `dist/chrome/` directories are the shipping artifacts. They can be deleted and recreated without manual edits.
+
+## Compatibility Layer
+
+`src/shared/ext.js` normalizes the small browser API surface used by the extension so runtime code can stay promise-based and browser-agnostic.
+
+Responsibilities of the compatibility layer:
+
+- expose `browser`-style promise APIs on top of the runtime available in Firefox or Chrome
+- map the unified menu namespace to Firefox `menus` and Chrome `contextMenus`
+- keep callback-to-promise adaptation local instead of spreading it through callers
+- provide the split-view sentinel helpers used by the runtime so membership checks stay consistent
+
+Runtime modules should use this adapter instead of touching `browser.*` or `chrome.*` directly.
 
 ## Extension Components
 
 ```
 src/
-  manifest.json          Firefox MV3 manifest
+  manifest.base.json     Shared manifest data used by both browser builds
+  manifest.firefox.json  Firefox-specific manifest overrides
+  manifest.chrome.json   Chrome-specific manifest overrides
   background/
     background.js        Service worker entry — validates and rehydrates pair state from storage on startup
     pairState.js         Authoritative in-memory pair store and mutation functions
   content/
     contentScript.js     Injected at document_idle — handles scroll metrics requests
                          and applies remote scroll commands
+  shared/ext.js          Browser compatibility adapter for runtime APIs and split-view helpers
   shared/
     canonicalUrl.js      Deterministic URL canonicalization (shared by all contexts)
     messages.js          Message type constants and JSDoc typedefs for the message protocol
@@ -32,6 +60,12 @@ src/
 **Pair invalidation**: All paths that invalidate a pair (`handleTabRemoved`, `handleTabUpdated` on URL mismatch, `handleTabReplaced` on URL mismatch or tab-get failure, explicit unpair) share one helper `invalidatePair()` that removes the pair, clears the ownership-switch log, persists the change, and notifies both tabs.
 
 **Global sync settings**: The background service worker also persists extension-global sync settings in `browser.storage.local.syncSettings`. These currently include `adaptiveArticleOverlap` and `pageKeyOverrideEnabled`. Changes made in the popup are broadcast to every paired tab by re-sending `SET_PAIR_CONTEXT`.
+
+## Split View Behavior
+
+Split-view support is a preference layer, not a separate pairing mode. When the browser exposes split metadata, the extension prefers the split mate for manual pairing and auto-pairs two matching tabs that finish loading in split view.
+
+The extension never creates, moves, or separates browser split panes. It only detects split-view membership and reacts to it.
 
 ## Pair State Model
 
@@ -99,3 +133,4 @@ Verbose debug output (ownership switches, etc.) is gated behind `src/shared/debu
 - Non-http(s) pages (PDFs, about:, file:, view-source:) cannot be paired.
 - Pages that block content script injection are detected via probe and reported as sync-unavailable in the popup.
 - Different `scrollHeight` values between paired tabs (e.g., one tab still loading dynamic content) are handled by clamping. The formula uses source metrics directly; a ratio-based correction is out of scope for v1.
+- Chrome support is limited to desktop Chrome 140+ because split-view metadata is part of the supported behavior.

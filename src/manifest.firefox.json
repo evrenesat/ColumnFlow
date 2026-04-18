@@ -1,0 +1,17 @@
+{
+  "permissions": ["tabs", "storage", "menus"],
+  "background": {
+    "scripts": ["background/background.js"],
+    "service_worker": "background/background.js",
+    "type": "module"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "split-scroll-continuum@evrenesat.dev",
+      "data_collection_permissions": {
+        "required": ["none"]
+      },
+      "strict_min_version": "131.0"
+    }
+  }
+}

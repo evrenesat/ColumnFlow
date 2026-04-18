@@ -32,10 +32,12 @@ import {
   setAdaptiveArticleOverlapEnabled,
   setPageKeyOverrideEnabled,
 } from './settings.js';
+import { ext } from '../shared/ext.js';
 
 export { flushPairsToStorage };
 
 const PAIR_PAGE_MENU_ID = 'pair-current-page';
+const { commands, menus, runtime, storage, tabs, windows } = ext;
 let contextMenuSetup = null;
 
 function ensureContextMenu() {
@@ -43,11 +45,11 @@ function ensureContextMenu() {
     return contextMenuSetup;
   }
 
-  contextMenuSetup = browser.menus
+  contextMenuSetup = menus
     .removeAll()
     .catch(console.error)
     .finally(() => {
-      browser.menus.create({
+      menus.create({
         id: PAIR_PAGE_MENU_ID,
         title: 'Duplicate and pair for split reading',
         contexts: ['page'],
@@ -66,13 +68,13 @@ function ensureContextMenu() {
 async function init() {
   ensureContextMenu();
   hydrateSyncSettings(await readSyncSettingsFromStorage());
-  const stored = await browser.storage.local.get('pairs');
+  const stored = await storage.local.get('pairs');
   if (stored.pairs && Array.isArray(stored.pairs)) {
     await rehydrateValidPairs(stored.pairs);
   }
 }
 
-browser.runtime.onMessage.addListener((message, sender) => {
+runtime.onMessage.addListener((message, sender) => {
   if (message.type === MessageType.GET_PAIR_STATUS) {
     return Promise.resolve(handleGetPairStatus(message.tabId, message.tabUrl));
   }
@@ -132,23 +134,23 @@ browser.runtime.onMessage.addListener((message, sender) => {
   }
 });
 
-browser.tabs.onRemoved.addListener(handleTabRemoved);
+tabs.onRemoved.addListener(handleTabRemoved);
 
-browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
+tabs.onUpdated.addListener((tabId, changeInfo) => {
   handleTabUpdated(tabId, changeInfo).catch(console.error);
 });
 
-browser.tabs.onActivated.addListener(({ tabId }) => {
+tabs.onActivated.addListener(({ tabId }) => {
   handleResumeOscillationPause(tabId);
 });
 
-browser.windows.onFocusChanged.addListener(async (windowId) => {
-  if (windowId === browser.windows.WINDOW_ID_NONE) {
+windows.onFocusChanged.addListener(async (windowId) => {
+  if (windowId === windows.WINDOW_ID_NONE) {
     return;
   }
 
   try {
-    const activeTabs = await browser.tabs.query({ windowId, active: true });
+    const activeTabs = await tabs.query({ windowId, active: true });
     for (const tab of activeTabs) {
       if (tab.id !== undefined) {
         handleResumeOscillationPause(tab.id);
@@ -159,22 +161,22 @@ browser.windows.onFocusChanged.addListener(async (windowId) => {
   }
 });
 
-browser.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
+tabs.onReplaced.addListener((addedTabId, removedTabId) => {
   handleTabReplaced(addedTabId, removedTabId).catch(console.error);
 });
 
-browser.runtime.onInstalled.addListener(() => {
+runtime.onInstalled.addListener(() => {
   ensureContextMenu();
 });
 
-browser.menus.onClicked.addListener((info, tab) => {
+menus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === PAIR_PAGE_MENU_ID && tab?.id) {
     handlePairCurrentTab(tab.id).catch(console.error);
   }
 });
 
-browser.commands.onCommand.addListener(async (command) => {
-  const [activeTab] = await browser.tabs.query({ active: true, currentWindow: true });
+commands.onCommand.addListener(async (command) => {
+  const [activeTab] = await tabs.query({ active: true, currentWindow: true });
   if (!activeTab?.id) return;
 
   if (command === 'pair-tab') {

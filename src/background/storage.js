@@ -6,6 +6,9 @@
  */
 
 import { getAllPairs } from './pairState.js';
+import { ext } from '../shared/ext.js';
+
+const { storage } = ext;
 
 /**
  * Flushes current in-memory pair state to extension storage.
@@ -13,14 +16,7 @@ import { getAllPairs } from './pairState.js';
  * @returns {Promise<void>}
  */
 export async function flushPairsToStorage() {
-  if (
-    typeof browser === 'undefined' ||
-    !browser?.storage?.local ||
-    typeof browser.storage.local.set !== 'function'
-  ) {
-    return;
-  }
-  await browser.storage.local.set({ pairs: getAllPairs() });
+  await storage.local.set({ pairs: getAllPairs() });
 }
 
 /**
@@ -28,14 +24,7 @@ export async function flushPairsToStorage() {
  * @returns {Promise<{ adaptiveArticleOverlap?: boolean, pageKeyOverrideEnabled?: boolean }>}
  */
 export async function readSyncSettingsFromStorage() {
-  if (
-    typeof browser === 'undefined' ||
-    !browser?.storage?.local ||
-    typeof browser.storage.local.get !== 'function'
-  ) {
-    return {};
-  }
-  const stored = await browser.storage.local.get('syncSettings');
+  const stored = await storage.local.get('syncSettings');
   return stored.syncSettings ?? {};
 }
 
@@ -45,12 +34,5 @@ export async function readSyncSettingsFromStorage() {
  * @returns {Promise<void>}
  */
 export async function flushSyncSettingsToStorage(settings) {
-  if (
-    typeof browser === 'undefined' ||
-    !browser?.storage?.local ||
-    typeof browser.storage.local.set !== 'function'
-  ) {
-    return;
-  }
-  await browser.storage.local.set({ syncSettings: settings });
+  await storage.local.set({ syncSettings: settings });
 }

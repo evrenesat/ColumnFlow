@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Split Scroll Continuum",
   "version": "0.1.0",
-  "description": "Firefox WebExtension for split-tab scroll continuum",
+  "description": "Browser extension for split-tab scroll continuum",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
@@ -10,13 +10,7 @@
     "96": "icons/icon-96.png",
     "128": "icons/icon-128.png"
   },
-  "permissions": ["tabs", "storage", "menus"],
   "host_permissions": ["http://*/*", "https://*/*"],
-  "background": {
-    "scripts": ["background/background.js"],
-    "service_worker": "background/background.js",
-    "type": "module"
-  },
   "action": {
     "default_icon": {
       "16": "icons/icon-16.png",
@@ -49,14 +43,5 @@
       "run_at": "document_idle"
     }
   ],
-  "browser_specific_settings": {
-    "gecko": {
-      "id": "split-scroll-continuum@evrenesat.dev",
-      "data_collection_permissions": {
-        "required": ["none"]
-      },
-      "strict_min_version": "131.0"
-    }
-  },
   "incognito": "spanning"
 }

@@ -19,6 +19,9 @@ import { flushPairsToStorage } from './storage.js';
 import { notifyTabPairContext, clearOscillationLog } from './syncCoordinator.js';
 import { MessageType } from '../shared/messages.js';
 import { getSyncSettings } from './settings.js';
+import { ext, getSplitViewId, isSplitViewTab } from '../shared/ext.js';
+
+const { tabs } = ext;
 
 /**
  * Removes a pair from all state stores, clears its oscillation log, persists
@@ -52,10 +55,7 @@ export async function rehydrateValidPairs(storedPairs) {
   const validPairs = [];
   for (const pair of storedPairs) {
     try {
-      const [tabA, tabB] = await Promise.all([
-        browser.tabs.get(pair.tabA),
-        browser.tabs.get(pair.tabB),
-      ]);
+      const [tabA, tabB] = await Promise.all([tabs.get(pair.tabA), tabs.get(pair.tabB)]);
       if (tabA.windowId !== tabB.windowId) continue;
       if (!urlsMatch(tabA.url ?? '', pair.canonicalUrl)) continue;
       if (!urlsMatch(tabB.url ?? '', pair.canonicalUrl)) continue;
@@ -82,18 +82,18 @@ export async function rehydrateValidPairs(storedPairs) {
 }
 
 /**
- * A tab object from the Firefox tabs API with the fields used by this module.
+ * A tab object from the tabs API with the fields used by this module.
  * @typedef {Object} TabLike
  * @property {number} id
  * @property {number} windowId
  * @property {string | undefined} url
  * @property {number} index
- * @property {string | undefined} [splitViewId]
+ * @property {number | null | undefined} [splitViewId]
  */
 
 /**
  * Returns candidate tabs ranked by the deterministic precedence rules:
- *   1. same splitViewId (when present and truthy)
+ *   1. same splitViewId (when present)
  *   2. same window (already enforced by callers; kept as filter here too)
  *   3. same canonical URL (filter criterion)
  *   4. oldest by tab index (lower index = older position)
@@ -122,9 +122,10 @@ export function rankCandidates(currentTab, allTabs) {
 
   candidates.sort((a, b) => {
     // Prefer tab sharing the same split view as currentTab.
-    const currentSplit = currentTab.splitViewId || null;
-    const aInSplit = currentSplit && a.splitViewId === currentSplit ? 0 : 1;
-    const bInSplit = currentSplit && b.splitViewId === currentSplit ? 0 : 1;
+    const currentSplit = getSplitViewId(currentTab);
+    const hasSplit = currentSplit !== null;
+    const aInSplit = hasSplit && getSplitViewId(a) === currentSplit ? 0 : 1;
+    const bInSplit = hasSplit && getSplitViewId(b) === currentSplit ? 0 : 1;
     if (aInSplit !== bInSplit) return aInSplit - bInSplit;
     // Older tab (lower index) preferred.
     if (a.index !== b.index) return a.index - b.index;
@@ -143,10 +144,14 @@ export function rankCandidates(currentTab, allTabs) {
  * @returns {Promise<TabLike>}
  */
 async function openDuplicateTab(currentTab) {
-  const created =
-    typeof browser.tabs.duplicate === 'function'
-      ? await browser.tabs.duplicate(currentTab.id)
-      : await browser.tabs.create({ url: currentTab.url, windowId: currentTab.windowId });
+  let created = await tabs.duplicate(currentTab.id);
+  if (!created) {
+    created = await tabs.create({ url: currentTab.url, windowId: currentTab.windowId });
+  }
+
+  if (!created) {
+    throw new Error('Could not open duplicate tab.');
+  }
 
   if (created.status === 'complete') {
     return created;
@@ -155,11 +160,11 @@ async function openDuplicateTab(currentTab) {
   return new Promise((resolve) => {
     function onUpdated(tabId, changeInfo, updatedTab) {
       if (tabId === created.id && changeInfo.status === 'complete') {
-        browser.tabs.onUpdated.removeListener(onUpdated);
+        tabs.onUpdated.removeListener(onUpdated);
         resolve(updatedTab);
       }
     }
-    browser.tabs.onUpdated.addListener(onUpdated);
+    tabs.onUpdated.addListener(onUpdated);
   });
 }
 
@@ -179,7 +184,7 @@ export async function handlePairCurrentTab(tabId) {
 
   let currentTab;
   try {
-    currentTab = await browser.tabs.get(tabId);
+    currentTab = await tabs.get(tabId);
   } catch {
     return { ok: false, reason: 'tab-not-found' };
   }
@@ -189,7 +194,7 @@ export async function handlePairCurrentTab(tabId) {
     return { ok: false, reason: urlCheck.reason };
   }
 
-  const allTabs = await browser.tabs.query({ windowId: currentTab.windowId });
+  const allTabs = await tabs.query({ windowId: currentTab.windowId });
   const candidates = rankCandidates(currentTab, allTabs);
 
   let siblingTab;
@@ -227,12 +232,12 @@ export async function handlePairCurrentTab(tabId) {
 async function maybeAutoPairSplitViewTab(tabId) {
   let currentTab;
   try {
-    currentTab = await browser.tabs.get(tabId);
+    currentTab = await tabs.get(tabId);
   } catch {
     return false;
   }
 
-  if (!currentTab?.splitViewId) {
+  if (!isSplitViewTab(currentTab)) {
     return false;
   }
 
@@ -240,9 +245,9 @@ async function maybeAutoPairSplitViewTab(tabId) {
     return false;
   }
 
-  const splitTabs = await browser.tabs.query({
+  const splitTabs = await tabs.query({
     windowId: currentTab.windowId,
-    splitViewId: currentTab.splitViewId,
+    splitViewId: getSplitViewId(currentTab),
   });
 
   if (splitTabs.length !== 2) {
@@ -342,7 +347,7 @@ export async function handleGetPairStatus(tabId, tabUrl) {
   let syncAvailable = true;
   let probeMetrics = null;
   try {
-    probeMetrics = await browser.tabs.sendMessage(tabId, {
+    probeMetrics = await tabs.sendMessage(tabId, {
       type: MessageType.GET_SCROLL_METRICS,
       pairId: pair.pairId,
       syncToken: pair.syncToken,
@@ -453,7 +458,7 @@ export function handleTabRemoved(tabId) {
  * Handles tabs.onUpdated: clean up pairs when URL changes invalidate matching,
  * or re-register pair context when a paired tab finishes reloading to the same URL.
  * @param {number} tabId
- * @param {{ url?: string, status?: string }} changeInfo
+ * @param {{ url?: string, status?: string, splitViewId?: number | null }} changeInfo
  * @returns {Promise<void>}
  */
 export async function handleTabUpdated(tabId, changeInfo) {
@@ -480,7 +485,7 @@ export async function handleTabUpdated(tabId, changeInfo) {
 }
 
 /**
- * Handles tabs.onReplaced: Firefox replaces tab IDs during prerender/discard.
+ * Handles tabs.onReplaced: some browsers replace tab IDs during prerender/discard.
  * If the removed tab was in a pair, update its ID if the replacement still
  * matches the pair's canonical URL, otherwise remove the pair.
  * @param {number} addedTabId
@@ -492,7 +497,7 @@ export async function handleTabReplaced(addedTabId, removedTabId) {
 
   let addedTab;
   try {
-    addedTab = await browser.tabs.get(addedTabId);
+    addedTab = await tabs.get(addedTabId);
   } catch {
     invalidatePair(pair);
     return;

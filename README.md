@@ -1,25 +1,39 @@
 # Split Scroll Continuum
 
-Firefox WebExtension that pairs two tabs showing the same page and synchronizes scroll position so both tabs behave as a two-column reading continuum when placed side by side in Firefox Split View.
+Firefox and Chrome Desktop 140+ WebExtension that pairs two tabs showing the same page and synchronizes scroll position so both tabs behave as a two-column reading continuum when placed side by side in browser split view.
 
 When you scroll down in the source tab, the sibling tab jumps to approximately the next readable segment — so the two tabs together cover consecutive vertical slices of one long document rather than showing the same content twice.
 
 ## Requirements
 
 - Firefox 131 or later (desktop)
-- The extension requires `tabs`, `storage`, and `menus` permissions plus `http://*/*` and `https://*/*` host access
+- Chrome 140 or later (desktop)
+- The extension requires `tabs`, `storage`, and browser-specific menu permissions plus `http://*/*` and `https://*/*` host access
 
 ## Install
 
-Load as a temporary extension for development:
+Build both browser packages first:
+
+```sh
+npm run build
+```
+
+Load the Firefox package as a temporary extension for development:
 
 1. Open `about:debugging` in Firefox
-2. Click **This Firefox** → **Load Temporary Add-on**
-3. Select `src/manifest.json`
+2. Click **This Firefox** -> **Load Temporary Add-on**
+3. Select `dist/firefox/manifest.json`
+
+Load the Chrome package unpacked:
+
+1. Open `chrome://extensions`
+2. Enable **Developer mode**
+3. Click **Load unpacked**
+4. Select `dist/chrome/`
 
 ## How it works
 
-**Pairing**: Click the extension icon in the toolbar, use the page context menu item **Duplicate and pair for split reading**, or press **Alt+Shift+P**. The extension looks for another tab in the same window with the same canonical URL. If none exists, it duplicates the current tab and pairs with it. A tab can belong to at most one pair at a time.
+**Pairing**: Click the extension icon in the toolbar, use the page context menu item **Duplicate and pair for split reading**, or press **Alt+Shift+P**. The extension looks for another tab in the same window with the same canonical URL, preferring a split-view mate when the browser exposes split metadata. If none exists, it duplicates the current tab and pairs with it. A tab can belong to at most one pair at a time.
 
 **Scroll sync**: When you scroll the source tab, the extension computes a continuum offset (`sourceScrollY + viewportHeight - 32px overlap`) and applies it to the sibling tab. If you start scrolling in the sibling tab instead, ownership switches automatically. Rapid ownership switching is logged for diagnostics, but sync keeps running instead of auto-pausing.
 
@@ -27,11 +41,11 @@ Load as a temporary extension for development:
 
 **PageUp / PageDown override**: By default, when a paired tab is actively syncing, pressing `PageUp` or `PageDown` in the page behaves like pressing that key twice. The popup can disable this globally, and the setting persists across tabs and browser restarts.
 
-**Split View**: If the current tab is in Firefox Split View, the extension prefers the split mate as the pairing candidate over other duplicate tabs.
+**Split View**: If the current tab is in split view and the browser exposes split metadata, the extension prefers the split mate as the pairing candidate over other duplicate tabs.
 
-**Context menu automation**: The page context menu can create the duplicate-and-pair flow in one step. Firefox’s current extension APIs expose `splitViewId` for detection, but they do not expose a supported API to place a tab into the other Split View pane programmatically, so the extension can prefer an existing split mate but cannot force creation of the split itself.
+**Context menu automation**: The page context menu can create the duplicate-and-pair flow in one step. Firefox and Chrome 140+ expose `splitViewId` for detection, but they do not expose a supported API to place a tab into the other split pane programmatically, so the extension can prefer an existing split mate but cannot force creation of the split itself.
 
-**Split View auto-pairing**: When two tabs enter Firefox Split View and finish loading with the same canonical URL, the extension now pairs them automatically and enables scroll sync without requiring a manual popup or context-menu action.
+**Split View auto-pairing**: When two tabs enter split view on a browser that exposes split metadata and finish loading with the same canonical URL, the extension pairs them automatically and enables scroll sync without requiring a manual popup or context-menu action.
 
 **Pausing**: Use **Pause sync** in the popup or **Alt+Shift+S** to pause without breaking the pair. The popup shows `[user]` as the pause reason for manual pauses. Legacy `[oscillation]` pauses from older state are auto-resumed when the tab or window becomes active again.
 
@@ -45,19 +59,22 @@ Load as a temporary extension for development:
 - Non-http(s) pages (about:, file:, view-source:, PDFs) cannot be paired. The popup shows an error for these.
 - Pages that block extension content scripts (privileged pages, strict CSP) will show "Sync unavailable" in the popup after pairing.
 - When paired tabs have different `scrollHeight` values (e.g., one tab still loading dynamic content), the formula applies with clamping. A console warning is logged. Exact continuation cannot be guaranteed until both tabs settle.
+- The extension does not create or move browser split panes programmatically. It only detects split metadata and prefers an existing split mate when one is available.
 - Private browsing and normal windows are handled via `"incognito": "spanning"`. Cross-window pairing between private and normal windows is not supported.
+- Chrome support is limited to desktop Chrome 140+.
 
 ## Development
 
 ```sh
 npm test          # run unit tests
 npm run lint      # run addons-linter
+npm run build     # rebuild dist/firefox/ and dist/chrome/
 ```
 
 To run web-ext lint directly:
 
 ```sh
-npx web-ext lint --source-dir src/
+npm run build:firefox && npx web-ext lint --source-dir dist/firefox/
 ```
 
 ### Debug output
@@ -72,6 +89,6 @@ Set `localStorage.setItem('split-scroll-debug', '1')` in the extension popup dev
 | Documentation page (MDN, docs site) | Works the same as static article. |
 | App page with moderate content | Works if the page uses standard document scroll. Custom scroll containers are not synced. |
 | Infinite-scroll page | Formula applies with clamping. Sync may lag as new content loads and changes `scrollHeight`. A debug warning is logged when heights differ. |
-| PDF (via Firefox PDF viewer) | Cannot be paired. Popup shows "This page cannot be paired." |
+| PDF / browser PDF viewer | Cannot be paired. Popup shows "This page cannot be paired." |
 | `about:`, `file:`, `view-source:` | Cannot be paired. Popup shows "This page cannot be paired." |
 | Page with blocked content script | Can be paired by URL, but popup shows "Sync unavailable: content script not accessible on this page." |

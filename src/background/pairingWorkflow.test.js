@@ -84,16 +84,16 @@ describe('rankCandidates', () => {
   });
 
   it('prefers tab in the same splitViewId over any non-split tab', () => {
-    const currentWithSplit = { ...currentTab, splitViewId: 'sv-abc' };
-    const tabInSplit = { id: 2, windowId: 10, url: URL_A, index: 99, splitViewId: 'sv-abc' };
+    const currentWithSplit = { ...currentTab, splitViewId: 17 };
+    const tabInSplit = { id: 2, windowId: 10, url: URL_A, index: 99, splitViewId: 17 };
     const tabNoSplit = { id: 3, windowId: 10, url: URL_A, index: 0, splitViewId: undefined };
     const ranked = rankCandidates(currentWithSplit, [currentWithSplit, tabInSplit, tabNoSplit]);
     expect(ranked[0].id).toBe(2);
   });
 
   it('falls back to index order when no tab shares splitViewId', () => {
-    const currentWithSplit = { ...currentTab, splitViewId: 'sv-abc' };
-    const tab2 = { id: 2, windowId: 10, url: URL_A, index: 5, splitViewId: 'sv-other' };
+    const currentWithSplit = { ...currentTab, splitViewId: 17 };
+    const tab2 = { id: 2, windowId: 10, url: URL_A, index: 5, splitViewId: 23 };
     const tab3 = { id: 3, windowId: 10, url: URL_A, index: 1, splitViewId: undefined };
     const ranked = rankCandidates(currentWithSplit, [currentWithSplit, tab2, tab3]);
     expect(ranked[0].id).toBe(3);
@@ -258,11 +258,11 @@ describe('handlePairCurrentTab', () => {
           windowId: 10,
           url: URL,
           index: 2,
-          splitViewId: 'sv-1',
+          splitViewId: 11,
         }),
         query: vi.fn().mockResolvedValue([
-          { id: 1, windowId: 10, url: URL, index: 2, splitViewId: 'sv-1' },
-          { id: 2, windowId: 10, url: URL, index: 99, splitViewId: 'sv-1' },
+          { id: 1, windowId: 10, url: URL, index: 2, splitViewId: 11 },
+          { id: 2, windowId: 10, url: URL, index: 99, splitViewId: 11 },
           { id: 3, windowId: 10, url: URL, index: 0 },
         ]),
         duplicate,
@@ -280,6 +280,77 @@ describe('handlePairCurrentTab', () => {
     expect(result.ok).toBe(true);
     expect(duplicate).not.toHaveBeenCalled();
     expect(getPairByTabId(1)?.tabB).toBe(2);
+  });
+
+  it('falls back to a same-window candidate when no split mate exists', async () => {
+    const duplicate = vi.fn();
+    const sendMessage = vi.fn().mockResolvedValue({});
+
+    vi.stubGlobal('browser', {
+      tabs: {
+        get: vi.fn().mockResolvedValue({
+          id: 1,
+          windowId: 10,
+          url: URL,
+          index: 4,
+          splitViewId: 17,
+        }),
+        query: vi.fn().mockResolvedValue([
+          { id: 1, windowId: 10, url: URL, index: 4, splitViewId: 17 },
+          { id: 2, windowId: 10, url: URL, index: 5 },
+          { id: 3, windowId: 10, url: URL, index: 1 },
+        ]),
+        duplicate,
+        onUpdated: {
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+        },
+        sendMessage,
+      },
+      storage: { local: { set: vi.fn().mockResolvedValue(undefined) } },
+    });
+
+    const result = await handlePairCurrentTab(1);
+
+    expect(result.ok).toBe(true);
+    expect(duplicate).not.toHaveBeenCalled();
+    expect(getPairByTabId(1)?.tabB).toBe(3);
+  });
+
+  it('works through the Chrome callback API surface without a browser global', async () => {
+    const duplicate = vi.fn((tabId, callback) =>
+      callback({ id: 2, windowId: 10, url: URL, status: 'complete' })
+    );
+    const sendMessage = vi.fn((tabId, message, callback) => callback({ tabId, message }));
+
+    vi.unstubAllGlobals();
+    vi.stubGlobal('chrome', {
+      runtime: { lastError: undefined },
+      tabs: {
+        get: vi.fn((tabId, callback) => callback({ id: tabId, windowId: 10, url: URL, index: 0 })),
+        query: vi.fn((queryInfo, callback) =>
+          callback([{ id: 1, windowId: 10, url: URL, index: 0 }])
+        ),
+        duplicate,
+        create: vi.fn(),
+        onUpdated: {
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+        },
+        sendMessage,
+      },
+      storage: { local: { set: vi.fn((items, callback) => callback()) } },
+    });
+
+    const result = await handlePairCurrentTab(1);
+
+    expect(result.ok).toBe(true);
+    expect(duplicate).toHaveBeenCalledWith(1, expect.any(Function));
+    expect(sendMessage).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ type: 'SET_PAIR_CONTEXT', pairId: result.pairId }),
+      expect.any(Function)
+    );
   });
 });
 
@@ -350,11 +421,11 @@ describe('handleTabUpdated: reload re-registration', () => {
       windowId: 10,
       url: URL,
       status: 'complete',
-      splitViewId: 'sv-1',
+      splitViewId: 11,
     });
     browser.tabs.query.mockResolvedValue([
-      { id: 1, windowId: 10, url: URL, status: 'complete', splitViewId: 'sv-1' },
-      { id: 2, windowId: 10, url: `${URL}#continued`, status: 'complete', splitViewId: 'sv-1' },
+      { id: 1, windowId: 10, url: URL, status: 'complete', splitViewId: 11 },
+      { id: 2, windowId: 10, url: `${URL}#continued`, status: 'complete', splitViewId: 11 },
     ]);
 
     await handleTabUpdated(1, { status: 'complete' });
@@ -378,14 +449,14 @@ describe('handleTabUpdated: reload re-registration', () => {
       windowId: 10,
       url: URL,
       status: 'complete',
-      splitViewId: 'sv-1',
+      splitViewId: 11,
     });
     browser.tabs.query.mockResolvedValue([
-      { id: 1, windowId: 10, url: URL, status: 'complete', splitViewId: 'sv-1' },
-      { id: 2, windowId: 10, url: 'https://example.com/other', status: 'complete', splitViewId: 'sv-1' },
+      { id: 1, windowId: 10, url: URL, status: 'complete', splitViewId: 11 },
+      { id: 2, windowId: 10, url: 'https://example.com/other', status: 'complete', splitViewId: 11 },
     ]);
 
-    await handleTabUpdated(1, { splitViewId: 'sv-1' });
+    await handleTabUpdated(1, { splitViewId: 11 });
 
     expect(getPairByTabId(1)).toBeUndefined();
     expect(browser.tabs.sendMessage).not.toHaveBeenCalled();
@@ -401,13 +472,33 @@ describe('handleTabUpdated: reload re-registration', () => {
       windowId: 10,
       url: URL,
       status: 'complete',
-      splitViewId: 'sv-1',
+      splitViewId: 11,
     });
 
-    await handleTabUpdated(1, { splitViewId: 'sv-1' });
+    await handleTabUpdated(1, { splitViewId: 11 });
 
     expect(getPairByTabId(1)?.tabB).toBe(3);
     expect(browser.tabs.query).not.toHaveBeenCalled();
+  });
+
+  it('does not auto-pair when more than two matching split tabs are present', async () => {
+    browser.tabs.get.mockResolvedValue({
+      id: 1,
+      windowId: 10,
+      url: URL,
+      status: 'complete',
+      splitViewId: 11,
+    });
+    browser.tabs.query.mockResolvedValue([
+      { id: 1, windowId: 10, url: URL, status: 'complete', splitViewId: 11 },
+      { id: 2, windowId: 10, url: `${URL}#continued`, status: 'complete', splitViewId: 11 },
+      { id: 3, windowId: 10, url: `${URL}#continued-too`, status: 'complete', splitViewId: 11 },
+    ]);
+
+    await handleTabUpdated(1, { splitViewId: 11, status: 'complete' });
+
+    expect(getPairByTabId(1)).toBeUndefined();
+    expect(browser.tabs.sendMessage).not.toHaveBeenCalled();
   });
 });
 

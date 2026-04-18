@@ -6,6 +6,9 @@
  */
 
 import { MessageType } from '../shared/messages.js';
+import { ext, isSplitViewTab } from '../shared/ext.js';
+
+const { runtime, tabs } = ext;
 
 const statusEl = document.getElementById('status');
 const actionBtn = document.getElementById('action-btn');
@@ -17,16 +20,16 @@ const pageKeyCheckbox = document.getElementById('page-key-checkbox');
 const adaptiveCheckbox = document.getElementById('adaptive-checkbox');
 const adaptiveDebug = document.getElementById('adaptive-debug');
 
-/** @returns {Promise<browser.tabs.Tab>} */
+/** @returns {Promise<unknown>} */
 async function getActiveTab() {
-  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+  const [tab] = await tabs.query({ active: true, currentWindow: true });
   return tab;
 }
 
 /**
  * Renders the popup state based on the status response from background.
  * @param {import('../shared/messages.js').PairStatusResponse} statusResp
- * @param {browser.tabs.Tab} tab
+ * @param {{ id?: number, splitViewId?: number | null }} tab
  */
 function render(statusResp, tab) {
   actionBtn.style.display = 'none';
@@ -46,7 +49,7 @@ function render(statusResp, tab) {
   adaptiveDebug.style.display = 'none';
   adaptiveDebug.textContent = '';
 
-  const inSplitView = Boolean(tab.splitViewId);
+  const inSplitView = isSplitViewTab(tab);
   splitBadge.style.display = inSplitView ? 'block' : 'none';
 
   switch (statusResp.status) {
@@ -143,7 +146,7 @@ async function refresh() {
 
   let statusResp;
   try {
-    statusResp = await browser.runtime.sendMessage({
+    statusResp = await runtime.sendMessage({
       type: MessageType.GET_PAIR_STATUS,
       tabId: tab.id,
       tabUrl: tab.url,
@@ -163,7 +166,7 @@ async function pairCurrentTab(tabId) {
 
   let resp;
   try {
-    resp = await browser.runtime.sendMessage({
+    resp = await runtime.sendMessage({
       type: MessageType.PAIR_CURRENT_TAB,
       tabId,
     });
@@ -187,7 +190,7 @@ async function unpairTab(tabId) {
 
   let resp;
   try {
-    resp = await browser.runtime.sendMessage({
+    resp = await runtime.sendMessage({
       type: MessageType.UNPAIR_TAB,
       tabId,
     });
@@ -211,7 +214,7 @@ async function pauseSync(tabId) {
 
   let resp;
   try {
-    resp = await browser.runtime.sendMessage({
+    resp = await runtime.sendMessage({
       type: MessageType.PAUSE_SYNC,
       tabId,
     });
@@ -235,7 +238,7 @@ async function resumeSync(tabId) {
 
   let resp;
   try {
-    resp = await browser.runtime.sendMessage({
+    resp = await runtime.sendMessage({
       type: MessageType.RESUME_SYNC,
       tabId,
     });
@@ -258,7 +261,7 @@ async function setAdaptiveArticleOverlap(enabled) {
 
   let resp;
   try {
-    resp = await browser.runtime.sendMessage({
+    resp = await runtime.sendMessage({
       type: MessageType.SET_ADAPTIVE_ARTICLE_OVERLAP,
       enabled,
     });
@@ -281,7 +284,7 @@ async function setPageKeyOverride(enabled) {
 
   let resp;
   try {
-    resp = await browser.runtime.sendMessage({
+    resp = await runtime.sendMessage({
       type: MessageType.SET_PAGE_KEY_OVERRIDE,
       enabled,
     });

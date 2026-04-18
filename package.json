@@ -1,12 +1,15 @@
 {
-  "name": "firefox-split-scroll",
+  "name": "split-scroll-continuum",
   "version": "0.1.0",
-  "description": "Firefox WebExtension for split-tab scroll continuum",
+  "description": "Firefox and Chrome 140+ browser extension for split-tab scroll continuum",
   "type": "module",
   "scripts": {
+    "build": "node scripts/build-extension.mjs all",
+    "build:firefox": "node scripts/build-extension.mjs firefox",
+    "build:chrome": "node scripts/build-extension.mjs chrome",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "addons-linter --enable-background-service-worker src/"
+    "lint": "node scripts/build-extension.mjs firefox && addons-linter --enable-background-service-worker dist/firefox/"
   },
   "devDependencies": {
     "addons-linter": "^8.2.0",

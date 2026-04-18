@@ -172,8 +172,8 @@ describe('rankCandidates: split-view precedence', () => {
   const URL_A = 'https://example.com/article';
 
   it('prefers split sibling even when it has a higher index', () => {
-    const current = { id: 1, windowId: 10, url: URL_A, index: 3, splitViewId: 'sv-xyz' };
-    const splitSibling = { id: 2, windowId: 10, url: URL_A, index: 99, splitViewId: 'sv-xyz' };
+    const current = { id: 1, windowId: 10, url: URL_A, index: 3, splitViewId: 17 };
+    const splitSibling = { id: 2, windowId: 10, url: URL_A, index: 99, splitViewId: 17 };
     const olderTab = { id: 3, windowId: 10, url: URL_A, index: 0, splitViewId: undefined };
     const ranked = rankCandidates(current, [current, splitSibling, olderTab]);
     expect(ranked[0].id).toBe(2);
@@ -181,31 +181,31 @@ describe('rankCandidates: split-view precedence', () => {
 
   it('falls back to index order when current tab has no splitViewId', () => {
     const current = { id: 1, windowId: 10, url: URL_A, index: 3 };
-    const tab2 = { id: 2, windowId: 10, url: URL_A, index: 5, splitViewId: 'sv-xyz' };
+    const tab2 = { id: 2, windowId: 10, url: URL_A, index: 5, splitViewId: 17 };
     const tab3 = { id: 3, windowId: 10, url: URL_A, index: 1, splitViewId: undefined };
     const ranked = rankCandidates(current, [current, tab2, tab3]);
     expect(ranked[0].id).toBe(3);
   });
 
   it('falls back to index order when no candidate shares splitViewId', () => {
-    const current = { id: 1, windowId: 10, url: URL_A, index: 3, splitViewId: 'sv-mine' };
-    const tab2 = { id: 2, windowId: 10, url: URL_A, index: 5, splitViewId: 'sv-other' };
+    const current = { id: 1, windowId: 10, url: URL_A, index: 3, splitViewId: 17 };
+    const tab2 = { id: 2, windowId: 10, url: URL_A, index: 5, splitViewId: 23 };
     const tab3 = { id: 3, windowId: 10, url: URL_A, index: 1, splitViewId: undefined };
     const ranked = rankCandidates(current, [current, tab2, tab3]);
     expect(ranked[0].id).toBe(3);
   });
 
   it('only one candidate in split view — it wins regardless of index', () => {
-    const current = { id: 1, windowId: 10, url: URL_A, index: 2, splitViewId: 'sv-abc' };
-    const splitTab = { id: 5, windowId: 10, url: URL_A, index: 100, splitViewId: 'sv-abc' };
+    const current = { id: 1, windowId: 10, url: URL_A, index: 2, splitViewId: 17 };
+    const splitTab = { id: 5, windowId: 10, url: URL_A, index: 100, splitViewId: 17 };
     const ranked = rankCandidates(current, [current, splitTab]);
     expect(ranked[0].id).toBe(5);
   });
 
   it('non-split-view current tab: excludes no candidates based on splitViewId alone', () => {
     const current = { id: 1, windowId: 10, url: URL_A, index: 5 };
-    const tab2 = { id: 2, windowId: 10, url: URL_A, index: 3, splitViewId: 'sv-xyz' };
-    const tab3 = { id: 3, windowId: 10, url: URL_A, index: 1, splitViewId: 'sv-other' };
+    const tab2 = { id: 2, windowId: 10, url: URL_A, index: 3, splitViewId: 17 };
+    const tab3 = { id: 3, windowId: 10, url: URL_A, index: 1, splitViewId: 23 };
     const ranked = rankCandidates(current, [current, tab2, tab3]);
     // Both candidates are reachable; sorted by index
     expect(ranked.map((t) => t.id)).toEqual([3, 2]);

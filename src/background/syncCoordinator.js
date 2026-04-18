@@ -12,6 +12,9 @@ import { getPairByTabId, nextSyncToken } from './pairState.js';
 import { flushPairsToStorage } from './storage.js';
 import { getSyncSettings } from './settings.js';
 import { debugLog } from '../shared/debug.js';
+import { ext } from '../shared/ext.js';
+
+const { tabs } = ext;
 
 /** Pixel overlap kept visible in both tabs for reading continuity. */
 const OVERLAP_PX = 32;
@@ -149,7 +152,7 @@ export async function handleScrollEvent(tabId, scrollMetrics) {
 
   let siblingMetrics;
   try {
-    siblingMetrics = await browser.tabs.sendMessage(siblingTabId, {
+    siblingMetrics = await tabs.sendMessage(siblingTabId, {
       type: MessageType.GET_SCROLL_METRICS,
       pairId: pair.pairId,
       syncToken: pair.syncToken,
@@ -186,7 +189,7 @@ export async function handleScrollEvent(tabId, scrollMetrics) {
   pair.lastSyncAt = Date.now();
 
   try {
-    await browser.tabs.sendMessage(siblingTabId, {
+    await tabs.sendMessage(siblingTabId, {
       type: MessageType.APPLY_SCROLL,
       pairId: pair.pairId,
       targetScrollY,
@@ -208,7 +211,7 @@ export async function notifyTabPairContext(tabId, pairId) {
   try {
     const { adaptiveArticleOverlap, pageKeyOverrideEnabled } = getSyncSettings();
     const pair = pairId ? getPairByTabId(tabId) : undefined;
-    await browser.tabs.sendMessage(tabId, {
+    await tabs.sendMessage(tabId, {
       type: MessageType.SET_PAIR_CONTEXT,
       pairId,
       adaptiveArticleOverlap,

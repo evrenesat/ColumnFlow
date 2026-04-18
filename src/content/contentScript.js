@@ -10,6 +10,9 @@
  * requestAnimationFrame coalescing and a trailing idle timeout. Remote-echo scrolls
  * (those triggered by APPLY_SCROLL within SUPPRESSION_WINDOW_MS) are suppressed.
  */
+import { ext } from '../shared/ext.js';
+
+const { runtime } = ext;
 
 /**
  * Content scripts are injected as classic scripts here, so they cannot rely on
@@ -374,7 +377,7 @@ function getReadingMetrics() {
 function sendScrollEvent(metrics) {
   if (!currentPairId) return;
   const readingMetrics = adaptiveArticleOverlapEnabled ? getReadingMetrics() : {};
-  browser.runtime.sendMessage({
+  runtime.sendMessage({
     type: MessageType.SCROLL_EVENT,
     pairId: currentPairId,
     scrollY: metrics.scrollY,
@@ -493,4 +496,4 @@ function handleMessage(message, _sender, sendResponse) {
 
 window.addEventListener('scroll', onScroll, { passive: true });
 window.addEventListener('keydown', onKeyDown, true);
-browser.runtime.onMessage.addListener(handleMessage);
+runtime.onMessage.addListener(handleMessage);
