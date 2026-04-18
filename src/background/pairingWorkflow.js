@@ -130,14 +130,22 @@ export function rankCandidates(currentTab, allTabs) {
 }
 
 /**
- * Opens a duplicate tab for the given URL in the same window and waits for it
+ * Opens a duplicate tab for the current tab and waits for it
  * to finish loading.
- * @param {string} url
- * @param {number} windowId
+ * Falls back to creating a same-URL tab when the duplicate API is unavailable.
+ * @param {TabLike} currentTab
  * @returns {Promise<TabLike>}
  */
-async function openDuplicateTab(url, windowId) {
-  const created = await browser.tabs.create({ url, windowId });
+async function openDuplicateTab(currentTab) {
+  const created =
+    typeof browser.tabs.duplicate === 'function'
+      ? await browser.tabs.duplicate(currentTab.id)
+      : await browser.tabs.create({ url: currentTab.url, windowId: currentTab.windowId });
+
+  if (created.status === 'complete') {
+    return created;
+  }
+
   return new Promise((resolve) => {
     function onUpdated(tabId, changeInfo, updatedTab) {
       if (tabId === created.id && changeInfo.status === 'complete') {
@@ -183,7 +191,7 @@ export async function handlePairCurrentTab(tabId) {
     siblingTab = candidates[0];
   } else {
     // No matching sibling — open a duplicate and pair with it.
-    siblingTab = await openDuplicateTab(currentTab.url, currentTab.windowId);
+    siblingTab = await openDuplicateTab(currentTab);
   }
 
   const result = createPair(tabId, siblingTab.id, currentTab.url);

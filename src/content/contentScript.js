@@ -11,7 +11,16 @@
  * (those triggered by APPLY_SCROLL within SUPPRESSION_WINDOW_MS) are suppressed.
  */
 
-import { MessageType } from '../shared/messages.js';
+/**
+ * Content scripts are injected as classic scripts here, so they cannot rely on
+ * extension-module loading at startup.
+ */
+const MessageType = Object.freeze({
+  GET_SCROLL_METRICS: 'GET_SCROLL_METRICS',
+  APPLY_SCROLL: 'APPLY_SCROLL',
+  SCROLL_EVENT: 'SCROLL_EVENT',
+  SET_PAIR_CONTEXT: 'SET_PAIR_CONTEXT',
+});
 
 /**
  * Duration (ms) during which scroll events after an APPLY_SCROLL are classified
@@ -94,9 +103,7 @@ function onScroll() {
   }, SCROLL_IDLE_MS);
 }
 
-window.addEventListener('scroll', onScroll, { passive: true });
-
-browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+function handleMessage(message, _sender, sendResponse) {
   if (message.type === MessageType.SET_PAIR_CONTEXT) {
     currentPairId = message.pairId;
     if (message.pairId === null) {
@@ -126,4 +133,8 @@ browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     sendResponse({ applied: true, syncToken: message.syncToken });
     return false;
   }
-});
+  return false;
+}
+
+window.addEventListener('scroll', onScroll, { passive: true });
+browser.runtime.onMessage.addListener(handleMessage);

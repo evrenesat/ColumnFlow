@@ -13,5 +13,12 @@ import { getAllPairs } from './pairState.js';
  * @returns {Promise<void>}
  */
 export async function flushPairsToStorage() {
+  if (
+    typeof browser === 'undefined' ||
+    !browser?.storage?.local ||
+    typeof browser.storage.local.set !== 'function'
+  ) {
+    return;
+  }
   await browser.storage.local.set({ pairs: getAllPairs() });
 }

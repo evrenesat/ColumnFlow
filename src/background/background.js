@@ -23,12 +23,36 @@ import { MessageType } from '../shared/messages.js';
 
 export { flushPairsToStorage };
 
+const PAIR_PAGE_MENU_ID = 'pair-current-page';
+let contextMenuSetup = null;
+
+function ensureContextMenu() {
+  if (contextMenuSetup) {
+    return contextMenuSetup;
+  }
+
+  contextMenuSetup = browser.menus
+    .removeAll()
+    .catch(console.error)
+    .finally(() => {
+      browser.menus.create({
+        id: PAIR_PAGE_MENU_ID,
+        title: 'Duplicate and pair for split reading',
+        contexts: ['page'],
+        documentUrlPatterns: ['http://*/*', 'https://*/*'],
+      });
+    });
+
+  return contextMenuSetup;
+}
+
 /**
  * Validates persisted pairs against live browser tabs and hydrates the store.
  * Called once on service worker startup. Invalid pairs (missing tabs, cross-window,
  * URL mismatch) are dropped and the cleanup is persisted.
  */
 async function init() {
+  ensureContextMenu();
   const stored = await browser.storage.local.get('pairs');
   if (stored.pairs && Array.isArray(stored.pairs)) {
     await rehydrateValidPairs(stored.pairs);
@@ -76,6 +100,16 @@ browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
 
 browser.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
   handleTabReplaced(addedTabId, removedTabId).catch(console.error);
+});
+
+browser.runtime.onInstalled.addListener(() => {
+  ensureContextMenu();
+});
+
+browser.menus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === PAIR_PAGE_MENU_ID && tab?.id) {
+    handlePairCurrentTab(tab.id).catch(console.error);
+  }
 });
 
 browser.commands.onCommand.addListener(async (command) => {

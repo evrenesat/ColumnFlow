@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { rankCandidates, handleTabUpdated, handleTabReplaced } from './pairingWorkflow.js';
+import {
+  rankCandidates,
+  handlePairCurrentTab,
+  handleTabUpdated,
+  handleTabReplaced,
+} from './pairingWorkflow.js';
 import {
   hydratePairs,
   createPair,
@@ -199,6 +204,82 @@ describe('pairState: deterministic pairId', () => {
   it('always uses lo-hi ordering in the string', () => {
     expect(makePairId(3, 7)).toBe('pair-3-7');
     expect(makePairId(7, 3)).toBe('pair-3-7');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handlePairCurrentTab
+// ---------------------------------------------------------------------------
+
+describe('handlePairCurrentTab', () => {
+  const URL = 'https://example.com/article';
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('duplicates the current tab when no sibling candidate exists', async () => {
+    const duplicate = vi.fn().mockResolvedValue({ id: 2, windowId: 10, url: URL, status: 'complete' });
+    const sendMessage = vi.fn().mockResolvedValue({});
+
+    vi.stubGlobal('browser', {
+      tabs: {
+        get: vi.fn().mockResolvedValue({ id: 1, windowId: 10, url: URL, index: 0 }),
+        query: vi.fn().mockResolvedValue([{ id: 1, windowId: 10, url: URL, index: 0 }]),
+        duplicate,
+        onUpdated: {
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+        },
+        sendMessage,
+      },
+      storage: { local: { set: vi.fn().mockResolvedValue(undefined) } },
+    });
+
+    const result = await handlePairCurrentTab(1);
+
+    expect(result.ok).toBe(true);
+    expect(duplicate).toHaveBeenCalledWith(1);
+    expect(getPairByTabId(1)?.tabB).toBe(2);
+    expect(sendMessage).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ type: 'SET_PAIR_CONTEXT', pairId: result.pairId })
+    );
+  });
+
+  it('prefers an existing split mate over duplicating the tab', async () => {
+    const duplicate = vi.fn();
+    const sendMessage = vi.fn().mockResolvedValue({});
+
+    vi.stubGlobal('browser', {
+      tabs: {
+        get: vi.fn().mockResolvedValue({
+          id: 1,
+          windowId: 10,
+          url: URL,
+          index: 2,
+          splitViewId: 'sv-1',
+        }),
+        query: vi.fn().mockResolvedValue([
+          { id: 1, windowId: 10, url: URL, index: 2, splitViewId: 'sv-1' },
+          { id: 2, windowId: 10, url: URL, index: 99, splitViewId: 'sv-1' },
+          { id: 3, windowId: 10, url: URL, index: 0 },
+        ]),
+        duplicate,
+        onUpdated: {
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+        },
+        sendMessage,
+      },
+      storage: { local: { set: vi.fn().mockResolvedValue(undefined) } },
+    });
+
+    const result = await handlePairCurrentTab(1);
+
+    expect(result.ok).toBe(true);
+    expect(duplicate).not.toHaveBeenCalled();
+    expect(getPairByTabId(1)?.tabB).toBe(2);
   });
 });
 

@@ -7,7 +7,7 @@ When you scroll down in the source tab, the sibling tab jumps to approximately t
 ## Requirements
 
 - Firefox 131 or later (desktop)
-- The extension requires `tabs`, `storage`, and `scripting` permissions
+- The extension requires `tabs`, `storage`, and `menus` permissions plus `http://*/*` and `https://*/*` host access
 
 ## Install
 
@@ -19,11 +19,13 @@ Load as a temporary extension for development:
 
 ## How it works
 
-**Pairing**: Click the extension icon in the toolbar and press **Pair with sibling** (or **Alt+Shift+P**). The extension looks for another tab in the same window with the same canonical URL. If none exists, it opens a duplicate tab and pairs with it. A tab can belong to at most one pair at a time.
+**Pairing**: Click the extension icon in the toolbar, use the page context menu item **Duplicate and pair for split reading**, or press **Alt+Shift+P**. The extension looks for another tab in the same window with the same canonical URL. If none exists, it duplicates the current tab and pairs with it. A tab can belong to at most one pair at a time.
 
 **Scroll sync**: When you scroll the source tab, the extension computes a continuum offset (`sourceScrollY + viewportHeight - 32px overlap`) and applies it to the sibling tab. If you start scrolling in the sibling tab instead, ownership switches automatically. Two ownership switches within 500ms are treated as oscillation and sync is auto-paused.
 
 **Split View**: If the current tab is in Firefox Split View, the extension prefers the split mate as the pairing candidate over other duplicate tabs.
+
+**Context menu automation**: The page context menu can create the duplicate-and-pair flow in one step. Firefox’s current extension APIs expose `splitViewId` for detection, but they do not expose a supported API to place a tab into the other Split View pane programmatically, so the extension can prefer an existing split mate but cannot force creation of the split itself.
 
 **Pausing**: Use **Pause sync** in the popup or **Alt+Shift+S** to pause without breaking the pair. The popup shows `[user]` or `[oscillation]` as the pause reason. Resume is available in the same popup.
 

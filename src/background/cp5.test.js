@@ -6,6 +6,10 @@ beforeEach(() => {
   hydratePairs([]);
 });
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 // ---------------------------------------------------------------------------
 // handleGetPairStatus: unsupported-page detection (invalid-page path)
 // ---------------------------------------------------------------------------
@@ -93,6 +97,29 @@ describe('handleGetPairStatus: paired tab with unreachable content script', () =
     const result = await handleGetPairStatus(1, 'https://example.com/article');
     expect(result.paused).toBe(true);
     expect(result.pauseReason).toBe('oscillation');
+  });
+
+  it('returns syncAvailable true when the content script responds', async () => {
+    const r = createPair(1, 2, 'https://example.com/article').pair;
+    addPair(r);
+
+    vi.stubGlobal('browser', {
+      tabs: {
+        sendMessage: vi.fn().mockResolvedValue({
+          scrollY: 0,
+          innerHeight: 900,
+          scrollHeight: 5000,
+          clientHeight: 900,
+          documentReady: true,
+        }),
+      },
+    });
+
+    const result = await handleGetPairStatus(1, 'https://example.com/article');
+
+    expect(result.status).toBe('paired-source');
+    expect(result.syncAvailable).toBe(true);
+
   });
 });
 
