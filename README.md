@@ -21,7 +21,11 @@ Load as a temporary extension for development:
 
 **Pairing**: Click the extension icon in the toolbar, use the page context menu item **Duplicate and pair for split reading**, or press **Alt+Shift+P**. The extension looks for another tab in the same window with the same canonical URL. If none exists, it duplicates the current tab and pairs with it. A tab can belong to at most one pair at a time.
 
-**Scroll sync**: When you scroll the source tab, the extension computes a continuum offset (`sourceScrollY + viewportHeight - 32px overlap`) and applies it to the sibling tab. If you start scrolling in the sibling tab instead, ownership switches automatically. Two ownership switches within 500ms are treated as oscillation and sync is auto-paused.
+**Scroll sync**: When you scroll the source tab, the extension computes a continuum offset (`sourceScrollY + viewportHeight - 32px overlap`) and applies it to the sibling tab. If you start scrolling in the sibling tab instead, ownership switches automatically. Rapid ownership switching is logged for diagnostics, but sync keeps running instead of auto-pausing.
+
+**Adaptive overlap (experimental)**: The popup can enable a global, persisted article-aware mode that measures a likely reading container, derives overlap from its line height, and discounts obvious sticky header/footer occlusion. This mode is conservative by design: when article detection is weak or incomplete, it falls back to the current fixed `32px` overlap path.
+
+**PageUp / PageDown override**: By default, when a paired tab is actively syncing, pressing `PageUp` or `PageDown` in the page behaves like pressing that key twice. The popup can disable this globally, and the setting persists across tabs and browser restarts.
 
 **Split View**: If the current tab is in Firefox Split View, the extension prefers the split mate as the pairing candidate over other duplicate tabs.
 
@@ -29,7 +33,9 @@ Load as a temporary extension for development:
 
 **Split View auto-pairing**: When two tabs enter Firefox Split View and finish loading with the same canonical URL, the extension now pairs them automatically and enables scroll sync without requiring a manual popup or context-menu action.
 
-**Pausing**: Use **Pause sync** in the popup or **Alt+Shift+S** to pause without breaking the pair. The popup shows `[user]` or `[oscillation]` as the pause reason. Resume is available in the same popup.
+**Pausing**: Use **Pause sync** in the popup or **Alt+Shift+S** to pause without breaking the pair. The popup shows `[user]` as the pause reason for manual pauses. Legacy `[oscillation]` pauses from older state are auto-resumed when the tab or window becomes active again.
+
+**Global popup settings**: The popup toggles for `Double PageUp / PageDown` and `Adaptive article overlap` are extension-global settings. Changing them from any tab updates all current pairs and persists for future tabs.
 
 ## Known limitations
 

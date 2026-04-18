@@ -5,21 +5,33 @@
  * tab lifecycle events to keep pair state valid.
  */
 
-import { flushPairsToStorage } from './storage.js';
+import {
+  flushPairsToStorage,
+  readSyncSettingsFromStorage,
+  flushSyncSettingsToStorage,
+} from './storage.js';
 import {
   handlePairCurrentTab,
   handleUnpairTab,
   handleGetPairStatus,
   handlePauseSync,
   handleResumeSync,
+  handleResumeOscillationPause,
   handleTabRemoved,
   handleTabUpdated,
   handleTabReplaced,
+  refreshAllPairContexts,
   rehydrateValidPairs,
 } from './pairingWorkflow.js';
 import { handleScrollEvent } from './syncCoordinator.js';
 import { getPairByTabId } from './pairState.js';
 import { MessageType } from '../shared/messages.js';
+import {
+  getSyncSettings,
+  hydrateSyncSettings,
+  setAdaptiveArticleOverlapEnabled,
+  setPageKeyOverrideEnabled,
+} from './settings.js';
 
 export { flushPairsToStorage };
 
@@ -53,6 +65,7 @@ function ensureContextMenu() {
  */
 async function init() {
   ensureContextMenu();
+  hydrateSyncSettings(await readSyncSettingsFromStorage());
   const stored = await browser.storage.local.get('pairs');
   if (stored.pairs && Array.isArray(stored.pairs)) {
     await rehydrateValidPairs(stored.pairs);
@@ -73,11 +86,33 @@ browser.runtime.onMessage.addListener((message, sender) => {
   }
 
   if (message.type === MessageType.PAUSE_SYNC) {
-    return Promise.resolve(handlePauseSync(message.tabId));
+    const response = handlePauseSync(message.tabId);
+    if (response.ok) {
+      refreshAllPairContexts().catch(console.error);
+    }
+    return Promise.resolve(response);
   }
 
   if (message.type === MessageType.RESUME_SYNC) {
-    return Promise.resolve(handleResumeSync(message.tabId));
+    const response = handleResumeSync(message.tabId);
+    if (response.ok) {
+      refreshAllPairContexts().catch(console.error);
+    }
+    return Promise.resolve(response);
+  }
+
+  if (message.type === MessageType.SET_ADAPTIVE_ARTICLE_OVERLAP) {
+    setAdaptiveArticleOverlapEnabled(message.enabled);
+    flushSyncSettingsToStorage(getSyncSettings()).catch(console.error);
+    refreshAllPairContexts().catch(console.error);
+    return Promise.resolve({ ok: true, ...getSyncSettings() });
+  }
+
+  if (message.type === MessageType.SET_PAGE_KEY_OVERRIDE) {
+    setPageKeyOverrideEnabled(message.enabled);
+    flushSyncSettingsToStorage(getSyncSettings()).catch(console.error);
+    refreshAllPairContexts().catch(console.error);
+    return Promise.resolve({ ok: true, ...getSyncSettings() });
   }
 
   if (message.type === MessageType.SCROLL_EVENT && sender.tab?.id !== undefined) {
@@ -87,6 +122,11 @@ browser.runtime.onMessage.addListener((message, sender) => {
       scrollHeight: message.scrollHeight,
       clientHeight: message.clientHeight,
       timestamp: message.timestamp,
+      articleDetected: message.articleDetected,
+      articleLineHeight: message.articleLineHeight,
+      topOcclusionPx: message.topOcclusionPx,
+      bottomOcclusionPx: message.bottomOcclusionPx,
+      effectiveViewportHeight: message.effectiveViewportHeight,
     }).catch(console.error);
     return false;
   }
@@ -96,6 +136,27 @@ browser.tabs.onRemoved.addListener(handleTabRemoved);
 
 browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
   handleTabUpdated(tabId, changeInfo).catch(console.error);
+});
+
+browser.tabs.onActivated.addListener(({ tabId }) => {
+  handleResumeOscillationPause(tabId);
+});
+
+browser.windows.onFocusChanged.addListener(async (windowId) => {
+  if (windowId === browser.windows.WINDOW_ID_NONE) {
+    return;
+  }
+
+  try {
+    const activeTabs = await browser.tabs.query({ windowId, active: true });
+    for (const tab of activeTabs) {
+      if (tab.id !== undefined) {
+        handleResumeOscillationPause(tab.id);
+      }
+    }
+  } catch (error) {
+    console.error(error);
+  }
 });
 
 browser.tabs.onReplaced.addListener((addedTabId, removedTabId) => {

@@ -27,6 +27,12 @@ export const MessageType = Object.freeze({
   /** Popup → background: get the current pairing status for the active tab. */
   GET_PAIR_STATUS: 'GET_PAIR_STATUS',
 
+  /** Popup → background: enable or disable adaptive article overlap. */
+  SET_ADAPTIVE_ARTICLE_OVERLAP: 'SET_ADAPTIVE_ARTICLE_OVERLAP',
+
+  /** Popup → background: enable or disable PageUp/PageDown override. */
+  SET_PAGE_KEY_OVERRIDE: 'SET_PAGE_KEY_OVERRIDE',
+
   /** Popup → background: pause scroll sync for the current tab pair. */
   PAUSE_SYNC: 'PAUSE_SYNC',
 
@@ -40,6 +46,7 @@ export const MessageType = Object.freeze({
  * @property {'GET_SCROLL_METRICS'} type
  * @property {string} pairId
  * @property {number} syncToken
+ * @property {boolean} [includeReadingMetrics]
  */
 
 /**
@@ -50,6 +57,13 @@ export const MessageType = Object.freeze({
  * @property {number} scrollHeight
  * @property {number} clientHeight
  * @property {boolean} documentReady
+ * @property {boolean} [articleDetected]
+ * @property {number | null} [articleLineHeight]
+ * @property {number} [articleSampleCount]
+ * @property {number} [topOcclusionPx]
+ * @property {number} [bottomOcclusionPx]
+ * @property {number} [effectiveViewportHeight]
+ * @property {number | null} [estimatedOverlapPx]
  */
 
 /**
@@ -79,6 +93,13 @@ export const MessageType = Object.freeze({
  * @property {number} clientHeight
  * @property {number} timestamp
  * @property {number} syncToken - Last syncToken received from background (for echo detection).
+ * @property {boolean} [articleDetected]
+ * @property {number | null} [articleLineHeight]
+ * @property {number} [articleSampleCount]
+ * @property {number} [topOcclusionPx]
+ * @property {number} [bottomOcclusionPx]
+ * @property {number} [effectiveViewportHeight]
+ * @property {number | null} [estimatedOverlapPx]
  */
 
 /**
@@ -111,6 +132,9 @@ export const MessageType = Object.freeze({
  * @typedef {Object} SetPairContextMessage
  * @property {'SET_PAIR_CONTEXT'} type
  * @property {string | null} pairId - Pair ID to register, or null to unregister.
+ * @property {boolean} adaptiveArticleOverlap
+ * @property {boolean} pageKeyOverrideEnabled
+ * @property {boolean} syncActive
  */
 
 /**
@@ -118,6 +142,30 @@ export const MessageType = Object.freeze({
  * @typedef {Object} GetPairStatusMessage
  * @property {'GET_PAIR_STATUS'} type
  * @property {number} tabId - Tab to query.
+ */
+
+/**
+ * Sent from popup to background to enable or disable adaptive article overlap.
+ * @typedef {Object} SetAdaptiveArticleOverlapMessage
+ * @property {'SET_ADAPTIVE_ARTICLE_OVERLAP'} type
+ * @property {boolean} enabled
+ */
+
+/**
+ * Response to SET_ADAPTIVE_ARTICLE_OVERLAP.
+ * @typedef {{ ok: true, adaptiveArticleOverlap: boolean, pageKeyOverrideEnabled: boolean } | { ok: false, reason: string }} SetAdaptiveArticleOverlapResponse
+ */
+
+/**
+ * Sent from popup to background to enable or disable PageUp/PageDown override.
+ * @typedef {Object} SetPageKeyOverrideMessage
+ * @property {'SET_PAGE_KEY_OVERRIDE'} type
+ * @property {boolean} enabled
+ */
+
+/**
+ * Response to SET_PAGE_KEY_OVERRIDE.
+ * @typedef {{ ok: true, adaptiveArticleOverlap: boolean, pageKeyOverrideEnabled: boolean } | { ok: false, reason: string }} SetPageKeyOverrideResponse
  */
 
 /**
@@ -156,4 +204,7 @@ export const MessageType = Object.freeze({
  * @property {boolean} syncAvailable - False when the content script is not reachable
  *   (e.g. blocked by page CSP, PDF, privileged page, or script not yet ready).
  *   Callers should surface a warning to the user rather than failing silently.
+ * @property {boolean} adaptiveArticleOverlap
+ * @property {boolean} pageKeyOverrideEnabled
+ * @property {{ articleDetected: boolean, articleLineHeight: number | null, articleSampleCount: number, topOcclusionPx: number, bottomOcclusionPx: number, effectiveViewportHeight: number | null, estimatedOverlapPx: number | null } | null} [adaptiveDebug]
  */

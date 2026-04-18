@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   handlePauseSync,
   handleResumeSync,
+  handleResumeOscillationPause,
   rankCandidates,
 } from './pairingWorkflow.js';
 import {
@@ -122,6 +123,40 @@ describe('handleResumeSync', () => {
     handleResumeSync(1);
     const second = handlePauseSync(1);
     expect(second.ok).toBe(true);
+
+    const pair = getPairByTabId(1);
+    expect(pair?.paused).toBe(true);
+    expect(pair?.pauseReason).toBe('user');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleResumeOscillationPause
+// ---------------------------------------------------------------------------
+
+describe('handleResumeOscillationPause', () => {
+  it('resumes an oscillation-paused pair', () => {
+    const r = createPair(1, 2, 'https://example.com/');
+    expect(r.ok).toBe(true);
+    addPair(r.pair);
+
+    const pair = getPairByTabId(1);
+    pair.paused = true;
+    pair.pauseReason = 'oscillation';
+
+    expect(handleResumeOscillationPause(1)).toBe(true);
+    expect(pair.paused).toBe(false);
+    expect(pair.pauseReason).toBeNull();
+  });
+
+  it('does not resume a user-paused pair', () => {
+    const r = createPair(1, 2, 'https://example.com/');
+    expect(r.ok).toBe(true);
+    addPair(r.pair);
+
+    handlePauseSync(1);
+
+    expect(handleResumeOscillationPause(1)).toBe(false);
 
     const pair = getPairByTabId(1);
     expect(pair?.paused).toBe(true);

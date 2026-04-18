@@ -65,6 +65,42 @@
         color: #c80;
         margin-top: 6px;
       }
+      #settings-wrap {
+        display: none;
+        margin-top: 8px;
+        font-size: 12px;
+        color: #444;
+      }
+      #settings-wrap label {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+      }
+      .setting-row + .setting-row {
+        margin-top: 8px;
+      }
+      #adaptive-hint {
+        margin-top: 4px;
+        color: #666;
+        line-height: 1.35;
+      }
+      #page-key-hint {
+        margin-top: 4px;
+        color: #666;
+        line-height: 1.35;
+      }
+      #adaptive-debug {
+        display: none;
+        margin-top: 6px;
+        padding: 6px 8px;
+        background: #f7f7f7;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        color: #555;
+        font-size: 11px;
+        line-height: 1.35;
+        white-space: pre-line;
+      }
     </style>
   </head>
   <body>
@@ -73,6 +109,23 @@
     <button id="action-btn" type="button"></button>
     <button id="pause-btn" type="button"></button>
     <div id="sync-warning"></div>
+    <div id="settings-wrap">
+      <div class="setting-row">
+        <label>
+          <input id="page-key-checkbox" type="checkbox" />
+          <span>Double PageUp / PageDown</span>
+        </label>
+        <div id="page-key-hint">Global. When sync is active, each key press acts like two native page moves. Enabled by default.</div>
+      </div>
+      <div class="setting-row">
+        <label>
+          <input id="adaptive-checkbox" type="checkbox" />
+          <span>Adaptive article overlap</span>
+        </label>
+        <div id="adaptive-hint">Global. Experimental. Falls back to the current fixed overlap when article detection is weak.</div>
+      </div>
+      <div id="adaptive-debug"></div>
+    </div>
     <script src="popup.js" type="module"></script>
   </body>
 </html>

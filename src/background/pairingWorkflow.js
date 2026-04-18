@@ -11,12 +11,14 @@ import {
   addPair,
   hydratePairs,
   removePair,
+  getAllPairs,
   getPairByTabId,
   replaceTabId,
 } from './pairState.js';
 import { flushPairsToStorage } from './storage.js';
 import { notifyTabPairContext, clearOscillationLog } from './syncCoordinator.js';
 import { MessageType } from '../shared/messages.js';
+import { getSyncSettings } from './settings.js';
 
 /**
  * Removes a pair from all state stores, clears its oscillation log, persists
@@ -57,6 +59,10 @@ export async function rehydrateValidPairs(storedPairs) {
       if (tabA.windowId !== tabB.windowId) continue;
       if (!urlsMatch(tabA.url ?? '', pair.canonicalUrl)) continue;
       if (!urlsMatch(tabB.url ?? '', pair.canonicalUrl)) continue;
+      if (pair.paused && pair.pauseReason === 'oscillation') {
+        pair.paused = false;
+        pair.pauseReason = null;
+      }
       validPairs.push(pair);
     } catch {
       // One or both tabs no longer exist — discard this pair.
@@ -300,14 +306,33 @@ export function handleUnpairTab(tabId) {
  * @returns {Promise<import('../shared/messages.js').PairStatusResponse>}
  */
 export async function handleGetPairStatus(tabId, tabUrl) {
+  const { adaptiveArticleOverlap, pageKeyOverrideEnabled } = getSyncSettings();
   const urlCheck = canonicalizeUrl(tabUrl ?? '');
   if (!urlCheck.ok) {
-    return { status: 'invalid-page', pairId: null, siblingTabId: null, paused: false, pauseReason: null, syncAvailable: false };
+    return {
+      status: 'invalid-page',
+      pairId: null,
+      siblingTabId: null,
+      paused: false,
+      pauseReason: null,
+      syncAvailable: false,
+      adaptiveArticleOverlap,
+      pageKeyOverrideEnabled,
+    };
   }
 
   const pair = getPairByTabId(tabId);
   if (!pair) {
-    return { status: 'unpaired', pairId: null, siblingTabId: null, paused: false, pauseReason: null, syncAvailable: true };
+    return {
+      status: 'unpaired',
+      pairId: null,
+      siblingTabId: null,
+      paused: false,
+      pauseReason: null,
+      syncAvailable: true,
+      adaptiveArticleOverlap,
+      pageKeyOverrideEnabled,
+    };
   }
 
   const siblingTabId = pair.tabA === tabId ? pair.tabB : pair.tabA;
@@ -315,11 +340,13 @@ export async function handleGetPairStatus(tabId, tabUrl) {
 
   // Probe this tab's content script to detect blocked injection or restricted pages.
   let syncAvailable = true;
+  let probeMetrics = null;
   try {
-    await browser.tabs.sendMessage(tabId, {
+    probeMetrics = await browser.tabs.sendMessage(tabId, {
       type: MessageType.GET_SCROLL_METRICS,
       pairId: pair.pairId,
       syncToken: pair.syncToken,
+      includeReadingMetrics: adaptiveArticleOverlap,
     });
   } catch {
     syncAvailable = false;
@@ -332,7 +359,35 @@ export async function handleGetPairStatus(tabId, tabUrl) {
     paused: pair.paused,
     pauseReason: pair.pauseReason,
     syncAvailable,
+    adaptiveArticleOverlap,
+    pageKeyOverrideEnabled,
+    adaptiveDebug:
+      adaptiveArticleOverlap && probeMetrics
+        ? {
+            articleDetected: probeMetrics.articleDetected === true,
+            articleLineHeight: probeMetrics.articleLineHeight ?? null,
+            articleSampleCount: probeMetrics.articleSampleCount ?? 0,
+            topOcclusionPx: probeMetrics.topOcclusionPx ?? 0,
+            bottomOcclusionPx: probeMetrics.bottomOcclusionPx ?? 0,
+            effectiveViewportHeight: probeMetrics.effectiveViewportHeight ?? null,
+            estimatedOverlapPx: probeMetrics.estimatedOverlapPx ?? null,
+          }
+        : null,
   };
+}
+
+/**
+ * Re-sends pair context to all currently paired tabs so content scripts can pick
+ * up updated sync settings without breaking the pair.
+ * @returns {Promise<void>}
+ */
+export async function refreshAllPairContexts() {
+  const pairContextNotifications = [];
+  for (const pair of getAllPairs()) {
+    pairContextNotifications.push(notifyTabPairContext(pair.tabA, pair.pairId));
+    pairContextNotifications.push(notifyTabPairContext(pair.tabB, pair.pairId));
+  }
+  await Promise.allSettled(pairContextNotifications);
 }
 
 /**
@@ -365,6 +420,23 @@ export function handleResumeSync(tabId) {
   pair.pauseReason = null;
   flushPairsToStorage().catch(console.error);
   return { ok: true };
+}
+
+/**
+ * Resumes a pair only when it is paused for a legacy oscillation reason.
+ * User-initiated pauses are preserved.
+ * @param {number} tabId
+ * @returns {boolean} true when a paused pair was resumed
+ */
+export function handleResumeOscillationPause(tabId) {
+  const pair = getPairByTabId(tabId);
+  if (!pair || !pair.paused || pair.pauseReason !== 'oscillation') {
+    return false;
+  }
+  pair.paused = false;
+  pair.pauseReason = null;
+  flushPairsToStorage().catch(console.error);
+  return true;
 }
 
 /**

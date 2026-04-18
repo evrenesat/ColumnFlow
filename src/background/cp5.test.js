@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { handleGetPairStatus, rehydrateValidPairs } from './pairingWorkflow.js';
 import { hydratePairs, createPair, addPair, getPairByTabId } from './pairState.js';
+import { hydrateSyncSettings } from './settings.js';
 
 beforeEach(() => {
   hydratePairs([]);
+  hydrateSyncSettings({});
 });
 
 afterEach(() => {
@@ -50,6 +52,8 @@ describe('handleGetPairStatus: unpaired tab', () => {
     const result = await handleGetPairStatus(99, 'https://example.com/');
     expect(result.status).toBe('unpaired');
     expect(result.syncAvailable).toBe(true);
+    expect(result.adaptiveArticleOverlap).toBe(false);
+    expect(result.pageKeyOverrideEnabled).toBe(true);
     expect(result.pairId).toBeNull();
     expect(result.siblingTabId).toBeNull();
   });
@@ -119,7 +123,45 @@ describe('handleGetPairStatus: paired tab with unreachable content script', () =
 
     expect(result.status).toBe('paired-source');
     expect(result.syncAvailable).toBe(true);
+  });
 
+  it('includes adaptive overlap setting in the paired response', async () => {
+    const r = createPair(1, 2, 'https://example.com/article').pair;
+    addPair(r);
+    hydrateSyncSettings({ adaptiveArticleOverlap: true, pageKeyOverrideEnabled: false });
+
+    vi.stubGlobal('browser', {
+      tabs: {
+        sendMessage: vi.fn().mockResolvedValue({
+          scrollY: 0,
+          innerHeight: 900,
+          scrollHeight: 5000,
+          clientHeight: 900,
+          documentReady: true,
+          articleDetected: true,
+          articleLineHeight: 28,
+          articleSampleCount: 12,
+          topOcclusionPx: 72,
+          bottomOcclusionPx: 0,
+          effectiveViewportHeight: 828,
+          estimatedOverlapPx: 56,
+        }),
+      },
+    });
+
+    const result = await handleGetPairStatus(1, 'https://example.com/article');
+
+    expect(result.adaptiveArticleOverlap).toBe(true);
+    expect(result.pageKeyOverrideEnabled).toBe(false);
+    expect(result.adaptiveDebug).toEqual({
+      articleDetected: true,
+      articleLineHeight: 28,
+      articleSampleCount: 12,
+      topOcclusionPx: 72,
+      bottomOcclusionPx: 0,
+      effectiveViewportHeight: 828,
+      estimatedOverlapPx: 56,
+    });
   });
 });
 
@@ -241,5 +283,28 @@ describe('rehydrateValidPairs: startup reconciliation', () => {
     await rehydrateValidPairs([stalePair]);
 
     expect(set).toHaveBeenCalledWith(expect.objectContaining({ pairs: [] }));
+  });
+
+  it('clears legacy oscillation pauses while rehydrating valid pairs', async () => {
+    const pair = createPair(1, 2, 'https://example.com/article').pair;
+    pair.paused = true;
+    pair.pauseReason = 'oscillation';
+
+    vi.stubGlobal('browser', {
+      tabs: {
+        get: vi.fn().mockImplementation((tabId) => {
+          if (tabId === 1) return Promise.resolve({ id: 1, windowId: 10, url: 'https://example.com/article' });
+          if (tabId === 2) return Promise.resolve({ id: 2, windowId: 10, url: 'https://example.com/article' });
+          return Promise.reject(new Error('Tab not found'));
+        }),
+        sendMessage: vi.fn().mockResolvedValue({}),
+      },
+      storage: { local: { set: vi.fn().mockResolvedValue(undefined) } },
+    });
+
+    await rehydrateValidPairs([pair]);
+
+    expect(getPairByTabId(1)?.paused).toBe(false);
+    expect(getPairByTabId(1)?.pauseReason).toBeNull();
   });
 });

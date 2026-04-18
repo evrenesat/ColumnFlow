@@ -12,6 +12,10 @@ const actionBtn = document.getElementById('action-btn');
 const pauseBtn = document.getElementById('pause-btn');
 const splitBadge = document.getElementById('split-badge');
 const syncWarning = document.getElementById('sync-warning');
+const settingsWrap = document.getElementById('settings-wrap');
+const pageKeyCheckbox = document.getElementById('page-key-checkbox');
+const adaptiveCheckbox = document.getElementById('adaptive-checkbox');
+const adaptiveDebug = document.getElementById('adaptive-debug');
 
 /** @returns {Promise<browser.tabs.Tab>} */
 async function getActiveTab() {
@@ -32,6 +36,15 @@ function render(statusResp, tab) {
   pauseBtn.disabled = false;
   syncWarning.style.display = 'none';
   syncWarning.textContent = '';
+  settingsWrap.style.display = 'block';
+  pageKeyCheckbox.disabled = false;
+  pageKeyCheckbox.checked = statusResp.pageKeyOverrideEnabled !== false;
+  pageKeyCheckbox.onchange = () => setPageKeyOverride(pageKeyCheckbox.checked);
+  adaptiveCheckbox.disabled = false;
+  adaptiveCheckbox.checked = statusResp.adaptiveArticleOverlap === true;
+  adaptiveCheckbox.onchange = () => setAdaptiveArticleOverlap(adaptiveCheckbox.checked);
+  adaptiveDebug.style.display = 'none';
+  adaptiveDebug.textContent = '';
 
   const inSplitView = Boolean(tab.splitViewId);
   splitBadge.style.display = inSplitView ? 'block' : 'none';
@@ -87,6 +100,20 @@ function render(statusResp, tab) {
     syncWarning.textContent = 'Sync unavailable: content script not accessible on this page.';
     syncWarning.style.display = 'block';
   }
+
+  if (statusResp.adaptiveArticleOverlap && statusResp.adaptiveDebug) {
+    const debug = statusResp.adaptiveDebug;
+    adaptiveDebug.textContent =
+      `Mode: ${debug.articleDetected ? 'adaptive candidate' : 'fallback'}\n` +
+      `Article detected: ${debug.articleDetected ? 'yes' : 'no'}\n` +
+      `Line height: ${debug.articleLineHeight ?? 'n/a'}\n` +
+      `Sample count: ${debug.articleSampleCount}\n` +
+      `Top occlusion: ${debug.topOcclusionPx}px\n` +
+      `Bottom occlusion: ${debug.bottomOcclusionPx}px\n` +
+      `Effective viewport: ${debug.effectiveViewportHeight ?? 'n/a'}px\n` +
+      `Estimated overlap: ${debug.estimatedOverlapPx ?? 'fallback'}px`;
+    adaptiveDebug.style.display = 'block';
+  }
 }
 
 /** @param {string} msg */
@@ -96,6 +123,8 @@ function renderError(msg) {
   actionBtn.style.display = 'none';
   pauseBtn.style.display = 'none';
   syncWarning.style.display = 'none';
+  settingsWrap.style.display = 'none';
+  adaptiveDebug.style.display = 'none';
 }
 
 async function refresh() {
@@ -217,6 +246,52 @@ async function resumeSync(tabId) {
 
   if (!resp.ok) {
     renderError(`Resume failed: ${resp.reason}`);
+    return;
+  }
+
+  await refresh();
+}
+
+/** @param {boolean} enabled */
+async function setAdaptiveArticleOverlap(enabled) {
+  adaptiveCheckbox.disabled = true;
+
+  let resp;
+  try {
+    resp = await browser.runtime.sendMessage({
+      type: MessageType.SET_ADAPTIVE_ARTICLE_OVERLAP,
+      enabled,
+    });
+  } catch {
+    renderError('Could not reach background service.');
+    return;
+  }
+
+  if (!resp.ok) {
+    renderError(`Adaptive overlap failed: ${resp.reason}`);
+    return;
+  }
+
+  await refresh();
+}
+
+/** @param {boolean} enabled */
+async function setPageKeyOverride(enabled) {
+  pageKeyCheckbox.disabled = true;
+
+  let resp;
+  try {
+    resp = await browser.runtime.sendMessage({
+      type: MessageType.SET_PAGE_KEY_OVERRIDE,
+      enabled,
+    });
+  } catch {
+    renderError('Could not reach background service.');
+    return;
+  }
+
+  if (!resp.ok) {
+    renderError(`Page key override failed: ${resp.reason}`);
     return;
   }
 

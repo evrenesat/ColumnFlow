@@ -1,9 +1,23 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   computeTargetScroll,
+  deriveAdaptiveScrollSettings,
   recordSwitchAndCheckOscillation,
   clearOscillationLog,
+  handleScrollEvent,
+  notifyTabPairContext,
 } from './syncCoordinator.js';
+import { hydratePairs, createPair, addPair, getPairByTabId } from './pairState.js';
+import { hydrateSyncSettings } from './settings.js';
+
+beforeEach(() => {
+  hydratePairs([]);
+  hydrateSyncSettings({});
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 // ---------------------------------------------------------------------------
 // computeTargetScroll
@@ -48,6 +62,92 @@ describe('computeTargetScroll', () => {
     // rawTarget = 300 + 600 - 32 = 868; siblingMax = 2400
     expect(result).toBe(868);
   });
+
+  it('uses provided overlap and effective viewport height when present', () => {
+    expect(
+      computeTargetScroll(
+        { scrollY: 100, innerHeight: 800, overlapPx: 48, effectiveViewportHeight: 700 },
+        { scrollHeight: 3000, clientHeight: 800 }
+      )
+    ).toBe(752);
+  });
+});
+
+describe('deriveAdaptiveScrollSettings', () => {
+  it('returns null when article metrics are unavailable', () => {
+    expect(
+      deriveAdaptiveScrollSettings(
+        { articleDetected: false, articleLineHeight: null, innerHeight: 800 },
+        { articleDetected: true, articleLineHeight: 24, innerHeight: 800 }
+      )
+    ).toBeNull();
+  });
+
+  it('derives a clamped overlap from measured line height', () => {
+    expect(
+      deriveAdaptiveScrollSettings(
+        {
+          articleDetected: true,
+          articleLineHeight: 20,
+          innerHeight: 900,
+          effectiveViewportHeight: 860,
+        },
+        {
+          articleDetected: true,
+          articleLineHeight: 24,
+          innerHeight: 900,
+          effectiveViewportHeight: 860,
+        }
+      )
+    ).toEqual({
+      overlapPx: 32,
+      effectiveViewportHeight: 860,
+    });
+  });
+
+  it('never returns an overlap smaller than the default', () => {
+    expect(
+      deriveAdaptiveScrollSettings(
+        {
+          articleDetected: true,
+          articleLineHeight: 14,
+          innerHeight: 900,
+          effectiveViewportHeight: 880,
+        },
+        {
+          articleDetected: true,
+          articleLineHeight: 14,
+          innerHeight: 900,
+          effectiveViewportHeight: 880,
+        }
+      )
+    ).toEqual({
+      overlapPx: 32,
+      effectiveViewportHeight: 880,
+    });
+  });
+
+  it('caps unusually large adaptive overlap', () => {
+    expect(
+      deriveAdaptiveScrollSettings(
+        {
+          articleDetected: true,
+          articleLineHeight: 40,
+          innerHeight: 900,
+          effectiveViewportHeight: 850,
+        },
+        {
+          articleDetected: true,
+          articleLineHeight: 44,
+          innerHeight: 900,
+          effectiveViewportHeight: 850,
+        }
+      )
+    ).toEqual({
+      overlapPx: 48,
+      effectiveViewportHeight: 850,
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -55,10 +155,6 @@ describe('computeTargetScroll', () => {
 // ---------------------------------------------------------------------------
 
 describe('recordSwitchAndCheckOscillation', () => {
-  beforeEach(() => {
-    // Each test uses a unique pairId to avoid state leakage between tests.
-  });
-
   it('returns false on first switch', () => {
     expect(recordSwitchAndCheckOscillation('osc-1', 1000)).toBe(false);
   });
@@ -101,5 +197,100 @@ describe('recordSwitchAndCheckOscillation', () => {
     recordSwitchAndCheckOscillation('osc-a', 1200);
     // osc-b has no prior switches — should not oscillate
     expect(recordSwitchAndCheckOscillation('osc-b', 1300)).toBe(false);
+  });
+});
+
+describe('handleScrollEvent', () => {
+  it('keeps sync active during rapid ownership switching', async () => {
+    const r = createPair(1, 2, 'https://example.com/article');
+    expect(r.ok).toBe(true);
+    addPair(r.pair);
+
+    const sendMessage = vi
+      .fn()
+      .mockResolvedValueOnce({
+        scrollY: 650,
+        innerHeight: 600,
+        scrollHeight: 5000,
+        clientHeight: 600,
+      })
+      .mockResolvedValueOnce({ applied: true, syncToken: 1 })
+      .mockResolvedValueOnce({
+        scrollY: 900,
+        innerHeight: 600,
+        scrollHeight: 5000,
+        clientHeight: 600,
+      })
+      .mockResolvedValueOnce({ applied: true, syncToken: 2 });
+
+    vi.stubGlobal('browser', {
+      tabs: { sendMessage },
+      storage: { local: { set: vi.fn().mockResolvedValue(undefined) } },
+    });
+
+    await handleScrollEvent(2, {
+      scrollY: 100,
+      innerHeight: 600,
+      scrollHeight: 5000,
+      clientHeight: 600,
+    });
+
+    await handleScrollEvent(1, {
+      scrollY: 300,
+      innerHeight: 600,
+      scrollHeight: 5000,
+      clientHeight: 600,
+    });
+
+    const pair = getPairByTabId(1);
+    expect(pair?.paused).toBe(false);
+    expect(pair?.pauseReason).toBeNull();
+    expect(pair?.sourceTabId).toBe(1);
+  });
+});
+
+describe('notifyTabPairContext', () => {
+  it('includes global settings and active sync state for a live pair', async () => {
+    const r = createPair(1, 2, 'https://example.com/article');
+    expect(r.ok).toBe(true);
+    addPair(r.pair);
+    hydrateSyncSettings({ adaptiveArticleOverlap: true, pageKeyOverrideEnabled: false });
+
+    const sendMessage = vi.fn().mockResolvedValue({});
+    vi.stubGlobal('browser', {
+      tabs: { sendMessage },
+    });
+
+    await notifyTabPairContext(1, r.pair.pairId);
+
+    expect(sendMessage).toHaveBeenCalledWith(1, {
+      type: 'SET_PAIR_CONTEXT',
+      pairId: r.pair.pairId,
+      adaptiveArticleOverlap: true,
+      pageKeyOverrideEnabled: false,
+      syncActive: true,
+    });
+  });
+
+  it('marks sync inactive when the pair is paused', async () => {
+    const r = createPair(1, 2, 'https://example.com/article');
+    expect(r.ok).toBe(true);
+    addPair(r.pair);
+    r.pair.paused = true;
+
+    const sendMessage = vi.fn().mockResolvedValue({});
+    vi.stubGlobal('browser', {
+      tabs: { sendMessage },
+    });
+
+    await notifyTabPairContext(1, r.pair.pairId);
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({
+        pairId: r.pair.pairId,
+        syncActive: false,
+      })
+    );
   });
 });

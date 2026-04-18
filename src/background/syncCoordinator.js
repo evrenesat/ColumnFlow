@@ -3,22 +3,21 @@
  *
  * Handles SCROLL_EVENT messages from content scripts, computes the continuum
  * target position for the sibling tab, manages source ownership, and detects
- * oscillation. Also provides the helper to notify content scripts of their
- * pair context via SET_PAIR_CONTEXT.
+ * rapid ownership switching for diagnostics. Also provides the helper to
+ * notify content scripts of their pair context via SET_PAIR_CONTEXT.
  */
 
 import { MessageType } from '../shared/messages.js';
 import { getPairByTabId, nextSyncToken } from './pairState.js';
 import { flushPairsToStorage } from './storage.js';
+import { getSyncSettings } from './settings.js';
 import { debugLog } from '../shared/debug.js';
 
 /** Pixel overlap kept visible in both tabs for reading continuity. */
 const OVERLAP_PX = 32;
+const MAX_ADAPTIVE_OVERLAP_PX = 48;
 
-/**
- * Two ownership switches within this window (ms) trigger an oscillation pause.
- * Must be a named constant; do not use a magic number.
- */
+/** Recent ownership switches retained for oscillation diagnostics. */
 const OSCILLATION_DETECT_MS = 500;
 
 /**
@@ -43,14 +42,59 @@ const ownershipSwitchLog = new Map();
  * @returns {number}
  */
 export function computeTargetScroll(source, sibling) {
-  const rawTarget = source.scrollY + source.innerHeight - OVERLAP_PX;
+  const sourceViewportHeight = source.effectiveViewportHeight ?? source.innerHeight;
+  const overlapPx = source.overlapPx ?? OVERLAP_PX;
+  const rawTarget = source.scrollY + sourceViewportHeight - overlapPx;
   const siblingMaxScroll = Math.max(0, sibling.scrollHeight - sibling.clientHeight);
   return Math.max(0, Math.min(rawTarget, siblingMaxScroll));
 }
 
+function isReasonableLineHeight(value) {
+  return Number.isFinite(value) && value >= 12 && value <= 48;
+}
+
+function isReasonableViewportHeight(value, innerHeight) {
+  return Number.isFinite(value) && value >= innerHeight * 0.5 && value <= innerHeight;
+}
+
+/**
+ * Derives a safer article overlap from measured typography. Returns null when the
+ * page does not look like a reliably measurable reading view.
+ *
+ * @param {import('../shared/messages.js').ScrollMetricsResponse | import('../shared/messages.js').ScrollEventMessage} source
+ * @param {import('../shared/messages.js').ScrollMetricsResponse} sibling
+ * @returns {{ overlapPx: number, effectiveViewportHeight: number } | null}
+ */
+export function deriveAdaptiveScrollSettings(source, sibling) {
+  if (!source.articleDetected || !sibling.articleDetected) {
+    return null;
+  }
+
+  if (!isReasonableLineHeight(source.articleLineHeight) || !isReasonableLineHeight(sibling.articleLineHeight)) {
+    return null;
+  }
+
+  const effectiveViewportHeight = isReasonableViewportHeight(
+    source.effectiveViewportHeight,
+    source.innerHeight
+  )
+    ? Math.round(source.effectiveViewportHeight)
+    : source.innerHeight;
+
+  const overlapPx = Math.max(
+    OVERLAP_PX,
+    Math.min(
+      MAX_ADAPTIVE_OVERLAP_PX,
+      Math.round(Math.max(source.articleLineHeight, sibling.articleLineHeight) * 1.35)
+    )
+  );
+
+  return { overlapPx, effectiveViewportHeight };
+}
+
 /**
  * Records an ownership switch for the given pair and returns true when two
- * switches have occurred within OSCILLATION_DETECT_MS (oscillation detected).
+ * switches have occurred within OSCILLATION_DETECT_MS.
  *
  * Accepts an optional `now` parameter for deterministic unit testing.
  *
@@ -79,7 +123,7 @@ export function clearOscillationLog(pairId) {
  *
  * - If the event is from the current source tab, syncs the sibling immediately.
  * - If from the non-source tab, attempts an ownership switch before syncing.
- * - Detects oscillation and pauses the pair if two switches occur too rapidly.
+ * - Tracks rapid ownership switching for diagnostics without auto-pausing sync.
  *
  * @param {number} tabId - Tab ID of the scrolling content script (from sender).
  * @param {{ scrollY: number, innerHeight: number, scrollHeight: number, clientHeight: number }} scrollMetrics
@@ -87,15 +131,14 @@ export function clearOscillationLog(pairId) {
 export async function handleScrollEvent(tabId, scrollMetrics) {
   const pair = getPairByTabId(tabId);
   if (!pair || !pair.enabled || pair.paused) return;
+  const { adaptiveArticleOverlap } = getSyncSettings();
 
   if (pair.sourceTabId !== tabId) {
     const oscillating = recordSwitchAndCheckOscillation(pair.pairId);
     if (oscillating) {
-      pair.paused = true;
-      pair.pauseReason = 'oscillation';
-      flushPairsToStorage().catch(console.error);
-      console.warn(`[split-scroll] Pair ${pair.pairId}: oscillation detected, sync paused.`);
-      return;
+      console.warn(
+        `[split-scroll] Pair ${pair.pairId}: rapid ownership switching detected; continuing sync.`
+      );
     }
     pair.sourceTabId = tabId;
     debugLog(`Pair ${pair.pairId}: ownership switched to tab ${tabId}.`);
@@ -110,6 +153,7 @@ export async function handleScrollEvent(tabId, scrollMetrics) {
       type: MessageType.GET_SCROLL_METRICS,
       pairId: pair.pairId,
       syncToken: pair.syncToken,
+      includeReadingMetrics: adaptiveArticleOverlap,
     });
   } catch {
     return;
@@ -124,7 +168,20 @@ export async function handleScrollEvent(tabId, scrollMetrics) {
     );
   }
 
-  const targetScrollY = computeTargetScroll(scrollMetrics, siblingMetrics);
+  const adaptiveSettings = adaptiveArticleOverlap
+    ? deriveAdaptiveScrollSettings(scrollMetrics, siblingMetrics)
+    : null;
+
+  const targetScrollY = computeTargetScroll(
+    adaptiveSettings
+      ? {
+          ...scrollMetrics,
+          overlapPx: adaptiveSettings.overlapPx,
+          effectiveViewportHeight: adaptiveSettings.effectiveViewportHeight,
+        }
+      : scrollMetrics,
+    siblingMetrics
+  );
   const token = nextSyncToken(pair.pairId);
   pair.lastSyncAt = Date.now();
 
@@ -149,9 +206,14 @@ export async function handleScrollEvent(tabId, scrollMetrics) {
  */
 export async function notifyTabPairContext(tabId, pairId) {
   try {
+    const { adaptiveArticleOverlap, pageKeyOverrideEnabled } = getSyncSettings();
+    const pair = pairId ? getPairByTabId(tabId) : undefined;
     await browser.tabs.sendMessage(tabId, {
       type: MessageType.SET_PAIR_CONTEXT,
       pairId,
+      adaptiveArticleOverlap,
+      pageKeyOverrideEnabled,
+      syncActive: pairId !== null && pair?.enabled === true && pair?.paused !== true,
     });
   } catch {
     // Content script not ready — acceptable.

@@ -29,7 +29,9 @@ src/
 
 **Reload repair**: When a paired tab fires `tabs.onUpdated` with `status:complete`, `handleTabUpdated` re-sends `SET_PAIR_CONTEXT` to that tab so its content script can resume emitting `SCROLL_EVENT`. If the tab navigated to a different canonical URL, the pair is invalidated instead.
 
-**Pair invalidation**: All paths that invalidate a pair (`handleTabRemoved`, `handleTabUpdated` on URL mismatch, `handleTabReplaced` on URL mismatch or tab-get failure, explicit unpair) share one helper `invalidatePair()` that removes the pair, clears the oscillation log, persists the change, and notifies both tabs.
+**Pair invalidation**: All paths that invalidate a pair (`handleTabRemoved`, `handleTabUpdated` on URL mismatch, `handleTabReplaced` on URL mismatch or tab-get failure, explicit unpair) share one helper `invalidatePair()` that removes the pair, clears the ownership-switch log, persists the change, and notifies both tabs.
+
+**Global sync settings**: The background service worker also persists extension-global sync settings in `browser.storage.local.syncSettings`. These currently include `adaptiveArticleOverlap` and `pageKeyOverrideEnabled`. Changes made in the popup are broadcast to every paired tab by re-sending `SET_PAIR_CONTEXT`.
 
 ## Pair State Model
 
@@ -66,6 +68,12 @@ Three message types between content scripts and background (defined in `src/shar
 | `SCROLL_EVENT` | content → background | Report a trusted local scroll event |
 
 All messages carry `pairId` for routing and `syncToken` for echo suppression.
+
+`SET_PAIR_CONTEXT` also carries the current global settings snapshot plus `syncActive`, allowing the content script to keep feature flags in sync without querying storage directly.
+
+## Keyboard Override
+
+When `pageKeyOverrideEnabled` is true and a pair is actively syncing, the content script intercepts unmodified `PageUp` and `PageDown` key presses at capture phase and converts each into a double-page movement. Editable controls are excluded so form inputs retain native keyboard behavior.
 
 ## Unsupported Case Handling
 
