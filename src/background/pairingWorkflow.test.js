@@ -292,7 +292,11 @@ describe('handleTabUpdated: reload re-registration', () => {
 
   beforeEach(() => {
     vi.stubGlobal('browser', {
-      tabs: { sendMessage: vi.fn().mockResolvedValue({}) },
+      tabs: {
+        sendMessage: vi.fn().mockResolvedValue({}),
+        get: vi.fn(),
+        query: vi.fn(),
+      },
       storage: { local: { set: vi.fn().mockResolvedValue(undefined) } },
     });
   });
@@ -338,6 +342,72 @@ describe('handleTabUpdated: reload re-registration', () => {
     await handleTabUpdated(1, { url: URL });
 
     expect(getPairByTabId(1)).toBeDefined();
+  });
+
+  it('auto-pairs split-view tabs with the same canonical URL after load completes', async () => {
+    browser.tabs.get.mockResolvedValue({
+      id: 1,
+      windowId: 10,
+      url: URL,
+      status: 'complete',
+      splitViewId: 'sv-1',
+    });
+    browser.tabs.query.mockResolvedValue([
+      { id: 1, windowId: 10, url: URL, status: 'complete', splitViewId: 'sv-1' },
+      { id: 2, windowId: 10, url: `${URL}#continued`, status: 'complete', splitViewId: 'sv-1' },
+    ]);
+
+    await handleTabUpdated(1, { status: 'complete' });
+
+    const pair = getPairByTabId(1);
+    expect(pair).toBeDefined();
+    expect(pair?.tabB).toBe(2);
+    expect(browser.tabs.sendMessage).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ type: 'SET_PAIR_CONTEXT', pairId: pair?.pairId })
+    );
+    expect(browser.tabs.sendMessage).toHaveBeenCalledWith(
+      2,
+      expect.objectContaining({ type: 'SET_PAIR_CONTEXT', pairId: pair?.pairId })
+    );
+  });
+
+  it('does not auto-pair split-view tabs with different canonical URLs', async () => {
+    browser.tabs.get.mockResolvedValue({
+      id: 1,
+      windowId: 10,
+      url: URL,
+      status: 'complete',
+      splitViewId: 'sv-1',
+    });
+    browser.tabs.query.mockResolvedValue([
+      { id: 1, windowId: 10, url: URL, status: 'complete', splitViewId: 'sv-1' },
+      { id: 2, windowId: 10, url: 'https://example.com/other', status: 'complete', splitViewId: 'sv-1' },
+    ]);
+
+    await handleTabUpdated(1, { splitViewId: 'sv-1' });
+
+    expect(getPairByTabId(1)).toBeUndefined();
+    expect(browser.tabs.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('does not auto-pair when one split-view tab is already paired', async () => {
+    const existing = createPair(1, 3, URL);
+    expect(existing.ok).toBe(true);
+    addPair(existing.pair);
+
+    browser.tabs.get.mockResolvedValue({
+      id: 1,
+      windowId: 10,
+      url: URL,
+      status: 'complete',
+      splitViewId: 'sv-1',
+    });
+
+    await handleTabUpdated(1, { splitViewId: 'sv-1' });
+
+    expect(getPairByTabId(1)?.tabB).toBe(3);
+    expect(browser.tabs.query).not.toHaveBeenCalled();
   });
 });
 

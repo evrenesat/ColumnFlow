@@ -212,6 +212,69 @@ export async function handlePairCurrentTab(tabId) {
 }
 
 /**
+ * Auto-pairs the two tabs in a split view when they resolve to the same canonical URL.
+ * This is idempotent: if either tab is already paired, no action is taken.
+ *
+ * @param {number} tabId
+ * @returns {Promise<boolean>} true when a new pair was created
+ */
+async function maybeAutoPairSplitViewTab(tabId) {
+  let currentTab;
+  try {
+    currentTab = await browser.tabs.get(tabId);
+  } catch {
+    return false;
+  }
+
+  if (!currentTab?.splitViewId) {
+    return false;
+  }
+
+  if (getPairByTabId(currentTab.id)) {
+    return false;
+  }
+
+  const splitTabs = await browser.tabs.query({
+    windowId: currentTab.windowId,
+    splitViewId: currentTab.splitViewId,
+  });
+
+  if (splitTabs.length !== 2) {
+    return false;
+  }
+
+  const [tabA, tabB] = splitTabs;
+  if (getPairByTabId(tabA.id) || getPairByTabId(tabB.id)) {
+    return false;
+  }
+
+  const urlA = canonicalizeUrl(tabA.url ?? '');
+  const urlB = canonicalizeUrl(tabB.url ?? '');
+  if (!urlA.ok || !urlB.ok || urlA.url !== urlB.url) {
+    return false;
+  }
+
+  if (tabA.status !== 'complete' || tabB.status !== 'complete') {
+    return false;
+  }
+
+  const result = createPair(tabA.id, tabB.id, tabA.url);
+  if (!result.ok) {
+    return false;
+  }
+
+  addPair(result.pair);
+  flushPairsToStorage().catch(console.error);
+
+  await Promise.allSettled([
+    notifyTabPairContext(tabA.id, result.pair.pairId),
+    notifyTabPairContext(tabB.id, result.pair.pairId),
+  ]);
+
+  return true;
+}
+
+/**
  * Removes the pair containing the given tab.
  * @param {number} tabId
  * @returns {{ ok: true } | { ok: false, reason: string }}
@@ -323,7 +386,16 @@ export function handleTabRemoved(tabId) {
  */
 export async function handleTabUpdated(tabId, changeInfo) {
   const pair = getPairByTabId(tabId);
-  if (!pair) return;
+  if (!pair) {
+    const splitViewChanged = changeInfo.splitViewId !== undefined;
+    const urlChanged = changeInfo.url !== undefined;
+    const loadCompleted = changeInfo.status === 'complete';
+
+    if (splitViewChanged || urlChanged || loadCompleted) {
+      await maybeAutoPairSplitViewTab(tabId);
+    }
+    return;
+  }
 
   if (changeInfo.url !== undefined && !urlsMatch(changeInfo.url, pair.canonicalUrl)) {
     invalidatePair(pair);

@@ -27,6 +27,8 @@ Load as a temporary extension for development:
 
 **Context menu automation**: The page context menu can create the duplicate-and-pair flow in one step. Firefox’s current extension APIs expose `splitViewId` for detection, but they do not expose a supported API to place a tab into the other Split View pane programmatically, so the extension can prefer an existing split mate but cannot force creation of the split itself.
 
+**Split View auto-pairing**: When two tabs enter Firefox Split View and finish loading with the same canonical URL, the extension now pairs them automatically and enables scroll sync without requiring a manual popup or context-menu action.
+
 **Pausing**: Use **Pause sync** in the popup or **Alt+Shift+S** to pause without breaking the pair. The popup shows `[user]` or `[oscillation]` as the pause reason. Resume is available in the same popup.
 
 ## Known limitations
